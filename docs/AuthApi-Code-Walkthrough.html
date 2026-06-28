@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Member Auth API — Code Walkthrough</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    color: #1f2733; line-height: 1.5; font-size: 11pt; margin: 0;
+  }
+  h1, h2, h3, h4 { color: #0b3d61; line-height: 1.25; }
+  h1 { font-size: 26pt; }
+  h2 { font-size: 18pt; border-bottom: 3px solid #0b6cb0; padding-bottom: 4px; margin-top: 34px; }
+  h3 { font-size: 13.5pt; margin-top: 22px; color: #0b6cb0; }
+  h4 { font-size: 11.5pt; margin-top: 16px; color: #2a5d83; }
+  p { margin: 8px 0; }
+  code { font-family: "Cascadia Code", "Consolas", monospace; font-size: 9.3pt;
+         background: #eef3f8; padding: 1px 4px; border-radius: 3px; color: #0a2540; }
+  pre { background: #0f2031; color: #dce6f2; padding: 12px 14px; border-radius: 7px;
+        overflow-x: auto; font-family: "Cascadia Code","Consolas",monospace; font-size: 8.6pt;
+        line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
+  pre code { background: none; color: inherit; padding: 0; }
+  .file { font-family: "Cascadia Code","Consolas",monospace; font-size: 8.6pt; color: #b9c7d6;
+          background: #1c3349; padding: 4px 10px; border-radius: 7px 7px 0 0; display: block;
+          margin-bottom: -7px; }
+  .file + pre { border-top-left-radius: 0; border-top-right-radius: 0; }
+  .why { background: #eaf6ec; border-left: 5px solid #2e9e4f; padding: 10px 14px;
+         border-radius: 4px; margin: 12px 0; }
+  .why b { color: #1d7a37; }
+  .sec { background: #fdeeee; border-left: 5px solid #d04444; padding: 10px 14px;
+         border-radius: 4px; margin: 12px 0; }
+  .sec b { color: #b22; }
+  .note { background: #fef7e6; border-left: 5px solid #e0a416; padding: 10px 14px;
+          border-radius: 4px; margin: 12px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 9.5pt; }
+  th, td { border: 1px solid #c4d2df; padding: 6px 9px; text-align: left; vertical-align: top; }
+  th { background: #0b6cb0; color: #fff; }
+  tr:nth-child(even) td { background: #f3f7fb; }
+  .cover { text-align: center; padding-top: 120px; page-break-after: always; }
+  .cover h1 { font-size: 34pt; margin-bottom: 4px; }
+  .cover .sub { font-size: 15pt; color: #4a6075; }
+  .cover .meta { margin-top: 60px; font-size: 11pt; color: #607890; }
+  .pill { display: inline-block; background: #0b6cb0; color: #fff; border-radius: 14px;
+          padding: 3px 12px; font-size: 9pt; margin: 3px; }
+  .page-break { page-break-before: always; }
+  ul.tight { margin: 6px 0; } ul.tight li { margin: 3px 0; }
+  .toc a { color: #0b3d61; text-decoration: none; }
+  .toc li { margin: 5px 0; }
+  .small { font-size: 9pt; color: #607890; }
+  .flow { font-family: "Cascadia Code","Consolas",monospace; font-size: 9pt; background:#eef3f8;
+          padding:10px 14px; border-radius:6px; }
+</style>
+</head>
+<body>
+
+<!-- ===================== COVER ===================== -->
+<div class="cover">
+  <h1>Member Auth API</h1>
+  <div class="sub">A .NET 8 Clean Architecture Authentication Service<br>Code Walkthrough &amp; Design Rationale</div>
+  <div style="margin-top:40px;">
+    <span class="pill">.NET 8 (→ .NET 10 ready)</span>
+    <span class="pill">Clean Architecture</span>
+    <span class="pill">CQRS + MediatR</span>
+    <span class="pill">RS256 JWT</span>
+    <span class="pill">EF Core</span>
+    <span class="pill">Refresh-token rotation</span>
+  </div>
+  <div class="meta">
+    Prepared for the Member Portal team<br>
+    Solution: <code>c:\ACH\AUTH API</code>
+  </div>
+</div>
+
+<!-- ===================== TOC ===================== -->
+<h2>Contents</h2>
+<ol class="toc">
+  <li><a href="#overview">What this service does &amp; the big picture</a></li>
+  <li><a href="#arch">Clean Architecture — the four layers and why</a></li>
+  <li><a href="#domain">Domain layer</a></li>
+  <li><a href="#application">Application layer (use cases)</a></li>
+  <li><a href="#infra">Infrastructure layer</a></li>
+  <li><a href="#api">API layer (the HTTP edge)</a></li>
+  <li><a href="#security">Security design deep-dive</a></li>
+  <li><a href="#config">Configuration, mocking &amp; switching to the real DB</a></li>
+  <li><a href="#setup">Project-setup best practices</a></li>
+  <li><a href="#run">How to run &amp; test</a></li>
+  <li><a href="#glossary">Glossary</a></li>
+</ol>
+
+<!-- ===================== 1. OVERVIEW ===================== -->
+<h2 id="overview" class="page-break">1. What this service does &amp; the big picture</h2>
+<p>The Member Portal needs a single, trustworthy place to verify a member's username and password and
+hand back a token that <em>other</em> microservices can trust. This API is exactly that — an
+<b>authentication authority</b>.</p>
+
+<h4>The happy path, in plain English</h4>
+<div class="flow">
+1. Member POSTs username + password to <b>/api/v1/auth/login</b><br>
+2. We look the member up in the database and verify the password against a stored salted hash<br>
+3. If valid, we mint a short-lived <b>JWT access token</b> signed with our private RSA key<br>
+&nbsp;&nbsp;&nbsp;— the token carries the member's identity <b>plus their LOBs and Plan IDs</b><br>
+4. We also issue a <b>refresh token</b> (so the client can get new access tokens without re-login)<br>
+5. Other microservices validate the JWT using only our <b>public key</b> (served at the JWKS endpoint)
+</div>
+
+<div class="why"><b>Why a dedicated Auth API?</b> Centralising authentication means every other service
+trusts one issuer, password handling lives in exactly one place, and the security rules (lockout, token
+lifetimes, signing keys) are configured and audited once rather than copied across services.</div>
+
+<h4>What's in scope right now</h4>
+<ul class="tight">
+  <li>Login (returns access + refresh tokens with LOB / Plan claims)</li>
+  <li>Refresh (rotates the refresh token)</li>
+  <li>A protected test endpoint (<code>/api/v1/members/me</code>) to prove the token works</li>
+  <li>JWKS + discovery endpoints so downstream services can validate tokens</li>
+</ul>
+
+<!-- ===================== 2. ARCHITECTURE ===================== -->
+<h2 id="arch" class="page-break">2. Clean Architecture — the four layers and why</h2>
+<p>The solution is split into four projects. The golden rule is the <b>Dependency Rule</b>: source code
+dependencies only ever point <em>inwards</em>, toward the domain. Outer layers know about inner layers,
+never the reverse.</p>
+
+<div class="flow">Api &nbsp;→&nbsp; Infrastructure &nbsp;→&nbsp; Application &nbsp;→&nbsp; Domain</div>
+
+<table>
+  <tr><th>Project</th><th>Responsibility</th><th>Depends on</th></tr>
+  <tr><td><b>AuthApi.Domain</b></td><td>Business entities (Member, Lob, Plan, RefreshToken) and the
+      <code>Result</code>/<code>Error</code> primitives. Pure C#, zero framework references.</td><td>nothing</td></tr>
+  <tr><td><b>AuthApi.Application</b></td><td>The use cases (Login, Refresh) as CQRS commands, plus the
+      <em>interfaces</em> it needs (database, token service, clock). Defines <em>what</em> happens.</td><td>Domain</td></tr>
+  <tr><td><b>AuthApi.Infrastructure</b></td><td>The concrete <em>how</em>: EF Core database, RSA token
+      signing, password hashing. Implements the Application's interfaces.</td><td>Application</td></tr>
+  <tr><td><b>AuthApi.Api</b></td><td>The HTTP edge: endpoints, JWT validation, middleware, Swagger.
+      Wires everything together at startup.</td><td>Application + Infrastructure</td></tr>
+</table>
+
+<div class="why"><b>Why bother splitting it up?</b> Two concrete payoffs for this project:
+<ul class="tight">
+  <li><b>The database is swappable.</b> The use cases talk to an interface (<code>IApplicationDbContext</code>),
+      so we run on a mocked in-memory database today and switch to the real SQL Server later by changing
+      one registration — no business logic changes.</li>
+  <li><b>The rules are testable.</b> Login logic has no dependency on ASP.NET or SQL Server, so it can be
+      unit-tested with fakes in milliseconds.</li>
+</ul></div>
+
+<!-- ===================== 3. DOMAIN ===================== -->
+<h2 id="domain" class="page-break">3. Domain layer</h2>
+<p>The innermost layer. It holds the nouns of the business and a couple of building blocks for expressing
+success/failure. It references no NuGet packages at all.</p>
+
+<h3>3.1 The Result &amp; Error pattern</h3>
+<p>Instead of throwing exceptions when a login fails, we <em>return</em> a value that says "this failed,
+and here's why". This is the <b>Result pattern</b> (a Milan Jovanović staple).</p>
+
+<div class="file">src/Domain/Common/Error.cs</div>
+<pre><code>public sealed record Error(string Code, string Description, ErrorType Type)
+{
+    public static readonly Error None = new(string.Empty, string.Empty, ErrorType.Failure);
+    public static Error Unauthorized(string code, string description) =&gt; new(code, description, ErrorType.Unauthorized);
+    public static Error Forbidden(string code, string description)   =&gt; new(code, description, ErrorType.Forbidden);
+    // ...Validation, NotFound, Conflict, Failure
+}</code></pre>
+
+<div class="file">src/Domain/Common/Result.cs (essence)</div>
+<pre><code>public class Result&lt;TValue&gt; : Result
+{
+    public TValue Value =&gt; IsSuccess ? _value! : throw new InvalidOperationException(/* ... */);
+
+    // Implicit conversions let handlers write `return value;` or `return someError;`
+    public static implicit operator Result&lt;TValue&gt;(TValue value) =&gt; Success(value);
+    public static implicit operator Result&lt;TValue&gt;(Error error) =&gt; Failure&lt;TValue&gt;(error);
+}</code></pre>
+
+<div class="why"><b>Why not just throw exceptions?</b> "Wrong password" is an <em>expected</em> outcome, not an
+exceptional one. Exceptions are expensive and easy to forget to catch. A <code>Result</code> makes the
+failure part of the method signature, so the compiler and the reader both see it. The
+<code>ErrorType</code> enum later maps cleanly onto HTTP status codes (Unauthorized → 401, etc.) without
+the Domain ever knowing what HTTP is.</div>
+
+<h3>3.2 Entities</h3>
+<p>Each member can belong to many lines of business and many plans, so we model those as many-to-many
+relationships through join entities.</p>
+
+<div class="file">src/Domain/Members/Member.cs (selected)</div>
+<pre><code>public class Member
+{
+    public Guid Id { get; set; }
+    public string Username { get; set; }
+    public string PasswordHash { get; set; }   // salted hash — never plaintext
+    public string PasswordSalt { get; set; }
+    public bool   IsActive { get; set; } = true;
+    public int    AccessFailedCount { get; set; }
+    public DateTime? LockoutEndUtc { get; set; }
+
+    public ICollection&lt;MemberLob&gt;  MemberLobs  { get; set; }
+    public ICollection&lt;MemberPlan&gt; MemberPlans { get; set; }
+
+    public void RegisterFailedLogin(int maxAttempts, TimeSpan lockoutDuration, DateTime utcNow)
+    {
+        AccessFailedCount++;
+        if (AccessFailedCount &gt;= maxAttempts)
+        {
+            LockoutEndUtc = utcNow.Add(lockoutDuration);
+            AccessFailedCount = 0;
+        }
+    }
+    public IReadOnlyCollection&lt;string&gt; LobCodes() =&gt; /* distinct LOB codes */;
+    public IReadOnlyCollection&lt;int&gt;    PlanIds()  =&gt; /* distinct plan ids   */;
+}</code></pre>
+
+<div class="why"><b>Why put lockout logic on the entity?</b> It is a business rule about a member, so it
+lives with the member ("rich domain model"). The handler stays thin and the rule is unit-testable in
+isolation. Storing only a salted hash + salt means a database leak never reveals real passwords.</div>
+
+<div class="file">src/Domain/Members/RefreshToken.cs (selected)</div>
+<pre><code>public class RefreshToken
+{
+    public string TokenHash { get; set; }          // we store the SHA-256 hash, NOT the token
+    public DateTime ExpiresUtc { get; set; }
+    public DateTime? RevokedUtc { get; set; }
+    public string? ReplacedByTokenHash { get; set; } // links a rotated token to its successor
+    public bool IsActive(DateTime utcNow) =&gt; RevokedUtc is null &amp;&amp; utcNow &lt; ExpiresUtc;
+}</code></pre>
+
+<!-- ===================== 4. APPLICATION ===================== -->
+<h2 id="application" class="page-break">4. Application layer (use cases)</h2>
+<p>This layer says <em>what</em> the system does, using the <b>CQRS</b> pattern with <b>MediatR</b>: each
+use case is a <code>Command</code> (the request) handled by a single <code>Handler</code>. It also
+declares the interfaces it needs the outside world to fulfil.</p>
+
+<h3>4.1 The interfaces it depends on</h3>
+<table>
+  <tr><th>Interface</th><th>Purpose</th><th>Implemented in</th></tr>
+  <tr><td><code>IApplicationDbContext</code></td><td>Database access (exposes the EF <code>DbSet</code>s)</td><td>Infrastructure → <code>AuthDbContext</code></td></tr>
+  <tr><td><code>IPasswordHasher</code></td><td>Verify a password against the stored salted hash</td><td>Infrastructure → <code>SaltedHashPasswordHasher</code></td></tr>
+  <tr><td><code>ITokenService</code></td><td>Create the JWT access token &amp; refresh tokens</td><td>Infrastructure → <code>TokenService</code></td></tr>
+  <tr><td><code>IDateTimeProvider</code></td><td>Abstracts "now" so time-based logic is testable</td><td>Infrastructure → <code>SystemDateTimeProvider</code></td></tr>
+</table>
+
+<div class="why"><b>Why declare interfaces here instead of in Infrastructure?</b> This is the
+<b>Dependency Inversion Principle</b>. The use case owns the contract it needs; Infrastructure adapts to
+it. That is what keeps the dependency arrow pointing inwards and lets us swap implementations (e.g. a fake
+clock in tests, or SQL Server instead of in-memory).</div>
+
+<h3>4.2 The Login use case</h3>
+<div class="file">src/Application/Authentication/Login/LoginCommand.cs</div>
+<pre><code>public sealed record LoginCommand(string Username, string Password, string? IpAddress)
+    : IRequest&lt;Result&lt;AuthenticationResult&gt;&gt;;</code></pre>
+
+<div class="file">src/Application/Authentication/Login/LoginCommandHandler.cs (core logic)</div>
+<pre><code>var member = await db.Members
+    .Include(m =&gt; m.MemberLobs).ThenInclude(ml =&gt; ml.Lob)
+    .Include(m =&gt; m.MemberPlans)
+    .FirstOrDefaultAsync(m =&gt; m.Username == request.Username, ct);
+
+// Unknown user: still run a hash check against a dummy value so the response time is the
+// same as for a real user — this prevents attackers from discovering valid usernames by timing.
+if (member is null)
+{
+    passwordHasher.Verify(request.Password, DummyHash, DummySalt);
+    return AuthErrors.InvalidCredentials;          // generic 401
+}
+
+if (member.IsLockedOut(now)) return AuthErrors.AccountLocked;            // 403
+
+if (!member.IsActive || !passwordHasher.Verify(request.Password, member.PasswordHash, member.PasswordSalt))
+{
+    member.RegisterFailedLogin(_lockout.MaxFailedAttempts, _lockout.LockoutDuration, now);
+    await db.SaveChangesAsync(ct);
+    return AuthErrors.InvalidCredentials;          // generic 401
+}
+
+member.RegisterSuccessfulLogin(now);
+var access  = tokenService.CreateAccessToken(member, member.LobCodes(), member.PlanIds());
+var refresh = tokenService.CreateRefreshToken();
+db.RefreshTokens.Add(new RefreshToken { /* hash, expiry, member id */ });
+await db.SaveChangesAsync(ct);
+return new AuthenticationResult(/* member, tokens, lobs, planIds */);</code></pre>
+
+<div class="sec"><b>Security choices visible here:</b>
+<ul class="tight">
+  <li><b>No user enumeration</b> — unknown user, wrong password, and inactive account all return the
+      <em>same</em> generic <code>InvalidCredentials</code>.</li>
+  <li><b>Timing-attack resistance</b> — the unknown-user branch performs a dummy hash so it takes about
+      the same time as a real verification.</li>
+  <li><b>Brute-force throttling</b> — failed attempts are counted and the account locks after N tries.</li>
+</ul></div>
+
+<h3>4.3 The Refresh use case &amp; rotation</h3>
+<p>Refreshing exchanges a valid refresh token for a brand-new pair, and <b>rotates</b> (invalidates) the
+old one. If a token that was already rotated is presented again, we treat it as theft and revoke the
+member's whole chain.</p>
+
+<div class="file">src/Application/Authentication/RefreshToken/RefreshTokenCommandHandler.cs (essence)</div>
+<pre><code>var presentedHash = tokenService.HashRefreshToken(request.RefreshToken);
+var existing = await db.RefreshTokens.Include(...).FirstOrDefaultAsync(rt =&gt; rt.TokenHash == presentedHash, ct);
+
+if (existing is null) return AuthErrors.InvalidRefreshToken;
+
+if (!existing.IsActive(now))                       // already revoked/expired => possible reuse
+{
+    await RevokeAllActiveTokensAsync(existing.MemberId, now, ip, ct);   // contain the breach
+    return AuthErrors.InvalidRefreshToken;
+}
+
+var newRefresh = tokenService.CreateRefreshToken();
+existing.Revoke(now, ip, newRefresh.Hash);         // old token points to its replacement
+db.RefreshTokens.Add(new RefreshToken { TokenHash = newRefresh.Hash, /* ... */ });
+var access = tokenService.CreateAccessToken(member, member.LobCodes(), member.PlanIds());</code></pre>
+
+<h3>4.4 Validation as a pipeline behavior</h3>
+<p>Every request passes through a MediatR <b>pipeline behavior</b> that runs its FluentValidation rules
+before the handler executes.</p>
+<div class="file">src/Application/Common/Behaviors/ValidationBehavior.cs (essence)</div>
+<pre><code>var failures = (await Task.WhenAll(_validators.Select(v =&gt; v.ValidateAsync(context, ct))))
+    .SelectMany(r =&gt; r.Errors).Where(f =&gt; f is not null).ToList();
+if (failures.Count != 0) throw new ValidationException(failures);
+return await next();</code></pre>
+<div class="why"><b>Why a behavior?</b> Validation is a cross-cutting concern. Putting it in the pipeline
+means every current and future use case is validated automatically — handlers never repeat
+"if username empty…". The thrown <code>ValidationException</code> is turned into a clean HTTP 400 by the
+API's global exception handler.</div>
+
+<!-- ===================== 5. INFRASTRUCTURE ===================== -->
+<h2 id="infra" class="page-break">5. Infrastructure layer</h2>
+<p>The concrete implementations. This is the only layer that knows about EF Core, RSA keys, SHA hashing,
+and SQL Server.</p>
+
+<h3>5.1 The DbContext and the provider switch</h3>
+<div class="file">src/Infrastructure/DependencyInjection.cs (persistence)</div>
+<pre><code>if (provider.Equals("SqlServer", StringComparison.OrdinalIgnoreCase))
+{
+    var cs = configuration.GetConnectionString("AuthDb")
+             ?? throw new InvalidOperationException("ConnectionStrings:AuthDb is required.");
+    options.UseSqlServer(cs, sql =&gt; sql.EnableRetryOnFailure());
+}
+else
+{
+    options.UseInMemoryDatabase("AuthApiMockDb");   // the mock, used today
+}
+services.AddScoped&lt;IApplicationDbContext&gt;(sp =&gt; sp.GetRequiredService&lt;AuthDbContext&gt;());</code></pre>
+<div class="why"><b>Why this matters for you:</b> "mock now, real database later" is a single configuration
+value. Because the rest of the app only knows <code>IApplicationDbContext</code>, swapping
+<code>UseInMemoryDatabase</code> for <code>UseSqlServer</code> requires <em>zero</em> code changes in the
+Domain, Application, or API layers.</div>
+
+<h3>5.2 Password verification — configurable, not hard-coded</h3>
+<p>The existing member database stores passwords as a salted SHA hash. The exact recipe (SHA-256 vs 512,
+salt-before vs salt-after, base64 vs hex, iteration count) varies between legacy systems, so we made it
+configuration-driven rather than baked in.</p>
+<div class="file">src/Infrastructure/Security/PasswordHashing/SaltedHashPasswordHasher.cs (essence)</div>
+<pre><code>public bool Verify(string password, string storedHash, string storedSalt)
+{
+    var expected = Decode(storedHash, _options.HashEncoding);
+    var salt     = Decode(storedSalt, _options.SaltEncoding);
+    var actual   = ComputeHash(password, salt);          // honours algorithm/placement/iterations
+    return CryptographicOperations.FixedTimeEquals(actual, expected);   // constant-time
+}</code></pre>
+<div class="sec"><b>Why <code>FixedTimeEquals</code>?</b> A normal byte-by-byte comparison returns faster
+when the first byte differs. Attackers can measure that to guess a hash one byte at a time. A constant-time
+compare always takes the same duration, closing that side-channel.</div>
+<div class="note"><b>Action when connecting the real DB:</b> set the <code>PasswordHashing</code> section to
+match exactly how the legacy system hashed passwords. No code change — just configuration.</div>
+
+<h3>5.3 Signing tokens with RSA (RS256)</h3>
+<p>The <code>RsaSigningKeyProvider</code> owns the RSA key. In Development it generates and caches a key
+locally; in Production you supply one from a secret store. It also exposes the <b>public</b> key as a JWKS
+for other services.</p>
+<div class="file">src/Infrastructure/Security/Jwt/TokenService.cs (claims)</div>
+<pre><code>var claims = new List&lt;Claim&gt;
+{
+    new(JwtRegisteredClaimNames.Sub, member.Id.ToString()),
+    new(JwtRegisteredClaimNames.Jti, jti),                 // unique token id
+    new(JwtRegisteredClaimNames.UniqueName, member.Username),
+};
+claims.AddRange(lobCodes.Select(code =&gt; new Claim("lob",  code)));   // one per LOB
+claims.AddRange(planIds.Select(id   =&gt; new Claim("plan", id.ToString())));  // one per plan
+
+var descriptor = new SecurityTokenDescriptor
+{
+    Subject = new ClaimsIdentity(claims),
+    Issuer = _options.Issuer, Audience = _options.Audience,
+    Expires = now.Add(_options.AccessTokenLifetime),      // short-lived (15 min default)
+    SigningCredentials = keyProvider.SigningCredentials,   // RSA + SHA-256
+    TokenType = "at+jwt"
+};</code></pre>
+
+<div class="why"><b>Why asymmetric RS256 instead of a shared secret (HS256)?</b> With a shared secret, every
+service that <em>validates</em> a token also holds the key that can <em>mint</em> tokens — one leak
+anywhere forges identities everywhere. With RS256, only this Auth API has the private (signing) key;
+everyone else gets the public key and can only verify. That is the industry-standard model used by
+Auth0, IdentityServer, Azure AD, etc.</div>
+
+<h3>5.4 Refresh tokens are random &amp; stored hashed</h3>
+<div class="file">src/Infrastructure/Security/Jwt/TokenService.cs (refresh)</div>
+<pre><code>var raw  = Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));  // 256 bits of entropy
+var hash = HashRefreshToken(raw);                                        // SHA-256
+// the RAW value is returned to the client once; only the HASH is saved in the DB</code></pre>
+<div class="sec"><b>Why store only the hash?</b> Same principle as passwords — if the database leaks, the
+stored hashes can't be replayed as tokens. The raw value exists only in transit and in the client.</div>
+
+<h3>5.5 Seeding the mock data</h3>
+<p><code>AuthDbDataSeeder</code> fills the in-memory database with two demo members, three LOBs and three
+plans on startup (Development only), so the API is testable end-to-end with no real database. It hashes
+the demo passwords through the very same <code>IPasswordHasher</code>, so login behaves identically to
+production.</p>
+
+<!-- ===================== 6. API ===================== -->
+<h2 id="api" class="page-break">6. API layer (the HTTP edge)</h2>
+<p>Thin by design. It maps HTTP requests onto MediatR commands, configures the security middleware, and
+composes the whole application at startup. Endpoints are <b>Minimal APIs</b> grouped by feature.</p>
+
+<h3>6.1 The request pipeline (Program.cs)</h3>
+<div class="file">src/Api/Program.cs (order matters)</div>
+<pre><code>app.UseExceptionHandler();      // turn exceptions into clean ProblemDetails
+app.UseSecurityHeaders();       // nosniff, DENY framing, no-referrer, ...
+if (!app.Environment.IsDevelopment()) app.UseHsts();
+app.UseHttpsRedirection();
+app.UseSerilogRequestLogging();
+app.UseCors(CorsPolicyName);
+app.UseRateLimiter();           // throttle the auth endpoints
+app.UseAuthentication();        // who are you? (validate the JWT)
+app.UseAuthorization();         // are you allowed?
+app.MapAuthEndpoints();
+app.MapMemberEndpoints();
+app.MapDiscoveryEndpoints();    // /.well-known/jwks.json + openid-configuration</code></pre>
+<div class="why"><b>Why the order is deliberate:</b> middleware runs top-to-bottom. Exception handling must
+wrap everything, security headers should apply to every response, and authentication must run before
+authorization. Getting this order wrong is a classic source of security holes.</div>
+
+<p>Before serving traffic, startup also forces the signing key to be created and (in Dev) seeds data —
+a <b>fail-fast</b> check so a misconfigured key never reaches a live request:</p>
+<pre><code>using (var scope = app.Services.CreateScope())
+{
+    scope.ServiceProvider.GetRequiredService&lt;RsaSigningKeyProvider&gt;();   // validates Jwt options too
+    if (seedMockData) await scope.ServiceProvider.GetRequiredService&lt;AuthDbDataSeeder&gt;().SeedAsync();
+}</code></pre>
+
+<h3>6.2 Endpoints</h3>
+<div class="file">src/Api/Endpoints/AuthEndpoints.cs (essence)</div>
+<pre><code>var group = app.MapGroup("/api/v1/auth").RequireRateLimiting(RateLimiterPolicies.Auth);
+group.MapPost("/login",   LoginAsync).AllowAnonymous();
+group.MapPost("/refresh", RefreshAsync).AllowAnonymous();
+
+static async Task&lt;IResult&gt; LoginAsync(LoginRequest req, ISender sender, HttpContext ctx, CancellationToken ct)
+{
+    var ip = ctx.Connection.RemoteIpAddress?.ToString();
+    var result = await sender.Send(new LoginCommand(req.Username, req.Password, ip), ct);
+    return result.ToHttpResult(AuthResponse.From);   // Result -> 200 or ProblemDetails
+}</code></pre>
+<div class="why"><b>Why the endpoint is so small:</b> it only translates HTTP ↔ command and lets the
+handler do the work. The <code>ToHttpResult</code> helper maps a <code>Result</code> onto either
+<code>200 OK</code> or an RFC-7807 <code>ProblemDetails</code> with the right status code, so HTTP concerns
+stay out of the business logic.</div>
+
+<h4>The protected test endpoint</h4>
+<div class="file">src/Api/Endpoints/MemberEndpoints.cs (essence)</div>
+<pre><code>var group = app.MapGroup("/api/v1/members").RequireAuthorization();   // valid JWT required
+group.MapGet("/me", (ClaimsPrincipal user) =&gt; Results.Ok(new MeResponse(
+    user.FindFirstValue(JwtRegisteredClaimNames.Sub),
+    user.FindFirstValue(JwtRegisteredClaimNames.UniqueName),
+    /* email, name */,
+    user.FindAll("lob").Select(c =&gt; c.Value).ToArray(),
+    user.FindAll("plan").Select(c =&gt; int.Parse(c.Value)).ToArray())));</code></pre>
+<div class="why"><b>Why include this?</b> It is the simplest possible "downstream service": it requires a
+valid token and reads the <code>lob</code>/<code>plan</code> claims back out — exactly how a real
+microservice would authorize a member. It's your end-to-end proof that a token works.</div>
+
+<h3>6.3 Validating incoming tokens</h3>
+<div class="file">src/Api/Infrastructure/ConfigureJwtBearerOptions.cs (essence)</div>
+<pre><code>options.TokenValidationParameters = new TokenValidationParameters
+{
+    ValidateIssuer = true,            ValidIssuer = _jwt.Issuer,
+    ValidateAudience = true,          ValidAudience = _jwt.Audience,
+    ValidateIssuerSigningKey = true,  IssuerSigningKey = keyProvider.PublicKey,   // public key only
+    ValidateLifetime = true,          ClockSkew = TimeSpan.FromMinutes(1),
+    ValidAlgorithms = [SecurityAlgorithms.RsaSha256],   // pin RS256 — reject anything else
+    RequireSignedTokens = true,       RequireExpirationTime = true,
+};
+options.MapInboundClaims = false;     // keep sub/lob/plan as-is</code></pre>
+<div class="sec"><b>Why pin the algorithm?</b> A famous JWT attack swaps the algorithm to <code>none</code>
+or downgrades RS256 to HS256 (using the public key as an HMAC secret). Explicitly allowing only
+<code>RS256</code> and requiring signed tokens shuts both attacks down.</div>
+
+<h3>6.4 Cross-cutting protections</h3>
+<table>
+  <tr><th>Concern</th><th>Where</th><th>What it does</th></tr>
+  <tr><td>Rate limiting</td><td><code>DependencyInjection.AddRateLimiting</code></td><td>Per-IP fixed window (10/min) on auth endpoints to slow brute force / credential stuffing.</td></tr>
+  <tr><td>Security headers</td><td><code>SecurityHeadersMiddleware</code></td><td>nosniff, X-Frame-Options DENY, no-referrer, permissions-policy; removes Server header.</td></tr>
+  <tr><td>Global errors</td><td><code>GlobalExceptionHandler</code> (<code>IExceptionHandler</code>)</td><td>Validation → 400 with field errors; anything else → generic 500. No stack traces leak.</td></tr>
+  <tr><td>CORS</td><td><code>AddCors</code></td><td>Only configured origins, only GET/POST — the Member Portal, not the whole internet.</td></tr>
+</table>
+
+<!-- ===================== 7. SECURITY ===================== -->
+<h2 id="security" class="page-break">7. Security design deep-dive</h2>
+<table>
+  <tr><th>Threat</th><th>Mitigation in this codebase</th></tr>
+  <tr><td>Stolen signing key forges tokens everywhere</td><td>Asymmetric <b>RS256</b>; only this API holds the private key, others verify with the public key (JWKS).</td></tr>
+  <tr><td>Token replay / long-lived access</td><td>Access tokens expire in ~15 min; refresh tokens rotate on every use.</td></tr>
+  <tr><td>Stolen refresh token</td><td>Stored only as a SHA-256 hash; reuse of a rotated token revokes the entire chain (theft detection).</td></tr>
+  <tr><td>Password database leak</td><td>Only salted hashes are stored; verification is constant-time.</td></tr>
+  <tr><td>Brute force / credential stuffing</td><td>Per-IP rate limiting + account lockout after N failed attempts.</td></tr>
+  <tr><td>Username discovery (enumeration)</td><td>Identical generic 401 for all failures + dummy-hash to equalise timing.</td></tr>
+  <tr><td>JWT "alg" downgrade / none attack</td><td>Algorithm pinned to RS256; signed tokens required.</td></tr>
+  <tr><td>Misconfiguration reaching production</td><td>Options validated and signing key built at startup (fail-fast).</td></tr>
+  <tr><td>Information leakage via errors</td><td>RFC-7807 ProblemDetails; no internal details or stack traces returned.</td></tr>
+  <tr><td>Transport &amp; browser attacks</td><td>HTTPS redirection, HSTS (non-dev), strict security headers, locked-down CORS.</td></tr>
+</table>
+
+<h4>The JWT claims issued</h4>
+<p><code>sub</code> (member id), <code>jti</code> (token id), <code>unique_name</code>, <code>email</code>,
+<code>given_name</code>, <code>family_name</code>, standard <code>iss/aud/iat/nbf/exp</code>, and one
+<code>lob</code> claim per line of business plus one <code>plan</code> claim per plan id. Downstream
+services read <code>lob</code>/<code>plan</code> to authorize what a member may see.</p>
+
+<!-- ===================== 8. CONFIG ===================== -->
+<h2 id="config" class="page-break">8. Configuration, mocking &amp; switching to the real DB</h2>
+<p>All knobs live in <code>appsettings.json</code> (overridable per environment and via user-secrets /
+environment variables / Key Vault).</p>
+<table>
+  <tr><th>Section</th><th>Controls</th></tr>
+  <tr><td><code>Database:Provider</code></td><td><code>InMemory</code> (mock, default) or <code>SqlServer</code> (real DB).</td></tr>
+  <tr><td><code>Database:SeedMockData</code></td><td>Whether to seed demo members (true in Dev).</td></tr>
+  <tr><td><code>ConnectionStrings:AuthDb</code></td><td>The real member database connection (SqlServer mode only).</td></tr>
+  <tr><td><code>Jwt</code></td><td>Issuer, Audience, token lifetimes, and the RSA key source.</td></tr>
+  <tr><td><code>PasswordHashing</code></td><td>Algorithm / salt placement / encoding / iterations to match the legacy DB.</td></tr>
+  <tr><td><code>AccountLockout</code></td><td>Max failed attempts &amp; lockout duration.</td></tr>
+  <tr><td><code>Cors:AllowedOrigins</code></td><td>Which front-ends may call the API.</td></tr>
+</table>
+
+<h4>Going to the real database — the three steps</h4>
+<ol class="tight">
+  <li>Set <code>Database:Provider = SqlServer</code>, <code>SeedMockData = false</code>, and a real <code>ConnectionStrings:AuthDb</code>.</li>
+  <li>Adjust the EF mappings in <code>Infrastructure/Persistence/Configurations/*</code> to the real table/column names.</li>
+  <li>Set <code>PasswordHashing</code> to match exactly how the existing system hashes passwords.</li>
+</ol>
+
+<h4>Moving to .NET 10</h4>
+<p>The target framework is centralised in <code>Directory.Build.props</code>. Change
+<code>net8.0</code> → <code>net10.0</code>, point <code>global.json</code> at a .NET 10 SDK, and remove the
+<code>RollForward</code> hint in the API project. One line per concern.</p>
+
+<!-- ===================== 9. SETUP ===================== -->
+<h2 id="setup" class="page-break">9. Project-setup best practices</h2>
+<table>
+  <tr><th>File</th><th>Purpose &amp; why</th></tr>
+  <tr><td><code>global.json</code></td><td>Pins the .NET 8 SDK so every machine/CI builds with the same toolchain — no "works on my machine".</td></tr>
+  <tr><td><code>Directory.Build.props</code></td><td>One place for shared MSBuild settings (TargetFramework, Nullable, ImplicitUsings, analysis level). Keeps the four <code>.csproj</code> files tiny and consistent; makes the .NET 10 move a one-line change.</td></tr>
+  <tr><td><code>Directory.Packages.props</code></td><td><b>Central Package Management.</b> Every NuGet version is declared once; projects reference packages without versions. Prevents version drift and makes upgrades trivial.</td></tr>
+  <tr><td><code>.editorconfig</code></td><td>Enforces consistent formatting &amp; naming across the team, checked at build time.</td></tr>
+</table>
+<p class="small">These four are part of the "set up a new .NET project the right way" practices. We applied
+<code>global.json</code>, <code>Directory.Build.props</code>, Central Package Management and
+<code>.editorconfig</code>; stricter analyzers, container orchestration and a CI pipeline were
+intentionally left as opt-in.</p>
+
+<!-- ===================== 10. RUN ===================== -->
+<h2 id="run">10. How to run &amp; test</h2>
+<pre><code># Build &amp; run (uses the per-user .NET 8 SDK pinned by global.json)
+&amp; "$env:USERPROFILE\.dotnet\dotnet.exe" run --project "src\Api\AuthApi.Api.csproj"
+# Swagger UI:  http://localhost:5155/swagger</code></pre>
+
+<h4>Demo members (Development)</h4>
+<table>
+  <tr><th>Username</th><th>Password</th><th>LOBs</th><th>Plan IDs</th></tr>
+  <tr><td><code>jdoe</code></td><td><code>P@ssw0rd!</code></td><td>DENTAL, VISION</td><td>1001, 2001</td></tr>
+  <tr><td><code>asmith</code></td><td><code>Secret123!</code></td><td>MEDICAL</td><td>3001</td></tr>
+</table>
+
+<pre><code>$base = "http://localhost:5155"
+$login = Invoke-RestMethod "$base/api/v1/auth/login" -Method Post -ContentType "application/json" `
+  -Body '{"username":"jdoe","password":"P@ssw0rd!"}'
+Invoke-RestMethod "$base/api/v1/members/me" -Headers @{ Authorization = "Bearer $($login.accessToken)" }</code></pre>
+
+<p>Try the security behaviour: wrong password → 401; <code>/me</code> with no token → 401; reuse a rotated
+refresh token → 401 (chain revoked); paste a token into <b>jwt.io</b> to see the <code>lob</code>/
+<code>plan</code> claims and the <code>kid</code>.</p>
+
+<!-- ===================== 11. GLOSSARY ===================== -->
+<h2 id="glossary" class="page-break">11. Glossary</h2>
+<table>
+  <tr><th>Term</th><th>Meaning</th></tr>
+  <tr><td><b>JWT</b></td><td>JSON Web Token — a signed, self-describing token carrying claims about the user.</td></tr>
+  <tr><td><b>Access token</b></td><td>Short-lived JWT proving identity to APIs.</td></tr>
+  <tr><td><b>Refresh token</b></td><td>Longer-lived opaque token used to get new access tokens without re-login.</td></tr>
+  <tr><td><b>Claim</b></td><td>A key/value statement inside a token (e.g. <code>sub</code>, <code>lob</code>).</td></tr>
+  <tr><td><b>RS256</b></td><td>RSA signature with SHA-256 — asymmetric (private key signs, public key verifies).</td></tr>
+  <tr><td><b>JWKS</b></td><td>JSON Web Key Set — the public keys, published so others can validate tokens.</td></tr>
+  <tr><td><b>CQRS</b></td><td>Command/Query Responsibility Segregation — model each operation as an explicit request.</td></tr>
+  <tr><td><b>MediatR</b></td><td>Library that dispatches a command to its single handler (and runs pipeline behaviors).</td></tr>
+  <tr><td><b>LOB</b></td><td>Line of Business (e.g. DENTAL, VISION) a member is associated with.</td></tr>
+  <tr><td><b>Salt</b></td><td>Random per-user value mixed into a password before hashing, so identical passwords hash differently.</td></tr>
+</table>
+
+<p class="small" style="margin-top:30px; text-align:center;">Member Auth API — Clean Architecture on .NET 8 ·
+generated walkthrough · <code>c:\ACH\AUTH API</code></p>
+
+</body>
+</html>

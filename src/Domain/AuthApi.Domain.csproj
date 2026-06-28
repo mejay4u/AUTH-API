@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Target framework, nullable, implicit usings come from Directory.Build.props -->
+
+</Project>

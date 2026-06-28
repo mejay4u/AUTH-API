@@ -1,0 +1,22 @@
+<Project>
+  <!--
+    Shared MSBuild settings for every project in the solution.
+    Target framework is centralized here so moving to .NET 10 is a ONE-LINE change:
+    set <TargetFramework>net10.0</TargetFramework> (and update global.json to a .NET 10 SDK).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!--
+      CA1716: 'Error'/'Plan' are deliberate domain names (Result pattern / benefit plan).
+      CA1515: public types are intentional for this library-style layering.
+    -->
+    <NoWarn>$(NoWarn);CA1716;CA1848;CA1822;CA1305;CA2007;CA1515;CA1861</NoWarn>
+  </PropertyGroup>
+</Project>

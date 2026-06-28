@@ -1,0 +1,16 @@
+## .NET
+bin/
+obj/
+*.user
+.vs/
+
+## Local signing keys (NEVER commit private keys)
+keys/
+*.pem
+
+## Rider / VS Code
+.idea/
+.vscode/
+
+## Logs
+*.log
