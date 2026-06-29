@@ -38,7 +38,7 @@ public static class AuthEndpoints
         LoginRequest request, ISender sender, HttpContext httpContext, CancellationToken cancellationToken)
     {
         var ip = httpContext.Connection.RemoteIpAddress?.ToString();
-        var result = await sender.Send(new LoginCommand(request.Username, request.Password, ip), cancellationToken);
+        var result = await sender.Send(new LoginCommand(request.Username, request.Password, request.Lob, ip), cancellationToken);
         return result.ToHttpResult(AuthResponse.From);
     }
 

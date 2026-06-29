@@ -2,8 +2,11 @@ using AuthApi.Application.Common.Models;
 
 namespace AuthApi.Api.Contracts;
 
-/// <summary>Login request body sent by the Member Portal.</summary>
-public sealed record LoginRequest(string Username, string Password);
+/// <summary>
+/// Login request body sent by the Member Portal. <paramref name="Lob"/> selects which line-of-business
+/// database to authenticate against (e.g. "DENTAL", "VISION", "MEDICAL", "RX").
+/// </summary>
+public sealed record LoginRequest(string Username, string Password, string Lob);
 
 /// <summary>Refresh request body — exchanges a refresh token for a new access token.</summary>
 public sealed record RefreshRequest(string RefreshToken);

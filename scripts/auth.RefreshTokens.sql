@@ -24,6 +24,7 @@ BEGIN
         Id                  UNIQUEIDENTIFIER NOT NULL
             CONSTRAINT PK_RefreshTokens PRIMARY KEY,
         MemberId            UNIQUEIDENTIFIER NOT NULL,   -- plain value, NOT a FK to the user table
+        Lob                 NVARCHAR(64)     NOT NULL,   -- LOB the token was issued for (picks the DB on refresh)
         TokenHash           NVARCHAR(256)    NOT NULL,   -- SHA-256 (base64url) of the raw token
         ExpiresUtc          DATETIME2(7)     NOT NULL,
         CreatedUtc          DATETIME2(7)     NOT NULL,

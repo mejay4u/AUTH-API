@@ -11,14 +11,15 @@ namespace AuthApi.Application.Common.Interfaces;
 public interface IAccountRepository
 {
     /// <summary>
-    /// Returns the member's login data for the given username, or <c>null</c> if no such member exists.
-    /// Equivalent to the legacy <c>GetMemberPortalLoginData</c> call.
+    /// Returns the member's login data for the given username from the LOB's database, or <c>null</c> if
+    /// no such member exists. Equivalent to the legacy <c>GetMemberPortalLoginData</c> stored proc.
+    /// The <paramref name="lob"/> selects which of the per-LOB databases to query.
     /// </summary>
-    Task<MemberPortalLoginData?> GetMemberPortalLoginDataAsync(string username, CancellationToken cancellationToken);
+    Task<MemberPortalLoginData?> GetMemberPortalLoginDataAsync(string username, string lob, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Returns the member's current login data by id — used by the refresh flow to re-read up-to-date
-    /// LOBs/Plans when issuing a new access token.
+    /// Returns the member's current login data by id from the LOB's database — used by the refresh flow
+    /// to re-read up-to-date Plan/LOB data when issuing a new access token.
     /// </summary>
-    Task<MemberPortalLoginData?> GetMemberPortalLoginDataByIdAsync(Guid memberId, CancellationToken cancellationToken);
+    Task<MemberPortalLoginData?> GetMemberPortalLoginDataByIdAsync(Guid memberId, string lob, CancellationToken cancellationToken);
 }

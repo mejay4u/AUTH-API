@@ -40,8 +40,9 @@ public sealed class RefreshTokenCommandHandler(
             return AuthErrors.InvalidRefreshToken;
         }
 
-        // Re-read the member's current login data (fresh LOBs/Plans) via the repository.
-        var data = await accountRepository.GetMemberPortalLoginDataByIdAsync(existing.MemberId, cancellationToken);
+        // Re-read the member's current login data (fresh LOBs/Plans) from the SAME LOB database the
+        // token was issued against.
+        var data = await accountRepository.GetMemberPortalLoginDataByIdAsync(existing.MemberId, existing.Lob, cancellationToken);
         if (data is null || !data.IsActive)
         {
             return AuthErrors.InvalidRefreshToken;
@@ -54,6 +55,7 @@ public sealed class RefreshTokenCommandHandler(
         {
             Id = Guid.NewGuid(),
             MemberId = data.MemberId,
+            Lob = existing.Lob,
             TokenHash = newRefresh.Hash,
             CreatedUtc = now,
             CreatedByIp = request.IpAddress,

@@ -20,6 +20,8 @@ public sealed class RefreshTokenConfiguration : IEntityTypeConfiguration<Refresh
         builder.Property(rt => rt.TokenHash).HasMaxLength(256).IsRequired();
         builder.HasIndex(rt => rt.TokenHash).IsUnique();
 
+        builder.Property(rt => rt.Lob).HasMaxLength(64).IsRequired();
+
         builder.Property(rt => rt.CreatedByIp).HasMaxLength(64);
         builder.Property(rt => rt.RevokedByIp).HasMaxLength(64);
         builder.Property(rt => rt.ReplacedByTokenHash).HasMaxLength(256);

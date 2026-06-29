@@ -9,5 +9,5 @@ namespace AuthApi.Application.Authentication.Login;
 /// (carrying LOBs and Plan IDs) plus a rotating refresh token.
 /// <paramref name="IpAddress"/> is captured for refresh-token auditing, not supplied by the caller.
 /// </summary>
-public sealed record LoginCommand(string Username, string Password, string? IpAddress)
+public sealed record LoginCommand(string Username, string Password, string Lob, string? IpAddress)
     : IRequest<Result<AuthenticationResult>>;

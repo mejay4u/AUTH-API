@@ -13,5 +13,9 @@ public sealed class LoginCommandValidator : AbstractValidator<LoginCommand>
         RuleFor(x => x.Password)
             .NotEmpty()
             .MaximumLength(256); // upper bound guards against hashing-based DoS with huge inputs
+
+        RuleFor(x => x.Lob)
+            .NotEmpty()
+            .MaximumLength(64); // selects which LOB database to authenticate against
     }
 }

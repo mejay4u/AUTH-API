@@ -1,6 +1,7 @@
 using AuthApi.Application.Common.Interfaces;
 using AuthApi.Application.Common.Security;
 using AuthApi.Infrastructure.Persistence;
+using AuthApi.Infrastructure.Persistence.Connections;
 using AuthApi.Infrastructure.Persistence.Repositories;
 using AuthApi.Infrastructure.Security.Jwt;
 using AuthApi.Infrastructure.Security.PasswordHashing;
@@ -20,12 +21,10 @@ public static class DependencyInjection
     {
         AddOptions(services, configuration, isDevelopment);
         AddPersistence(services, configuration);
+        AddAccountDataAccess(services, configuration);
 
         services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
         services.AddScoped<IPasswordHasher, SaltedHashPasswordHasher>();
-
-        // Data-access boundary for login data (legacy AccountRepository equivalent, database-first).
-        services.AddScoped<IAccountRepository, AccountRepository>();
 
         // The RSA key must be stable for the process lifetime -> singleton.
         services.AddSingleton<RsaSigningKeyProvider>();
@@ -78,5 +77,28 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<AuthDbContext>());
+    }
+
+    /// <summary>
+    /// Wires the login data-access boundary (legacy AccountRepository equivalent).
+    /// SqlServer  → Dapper calling per-LOB stored procs via <see cref="ILobConnectionFactory"/>.
+    /// InMemory   → EF-backed mock against the seeded store, so the API runs without the real LOB DBs.
+    /// </summary>
+    private static void AddAccountDataAccess(IServiceCollection services, IConfiguration configuration)
+    {
+        var provider = configuration.GetValue<string>("Database:Provider") ?? "InMemory";
+
+        if (provider.Equals("SqlServer", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddOptions<LobConnectionOptions>()
+                .Bind(configuration.GetSection(LobConnectionOptions.SectionName));
+
+            services.AddSingleton<ILobConnectionFactory, LobConnectionFactory>();
+            services.AddScoped<IAccountRepository, DapperAccountRepository>();
+        }
+        else
+        {
+            services.AddScoped<IAccountRepository, MockAccountRepository>();
+        }
     }
 }

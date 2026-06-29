@@ -27,7 +27,7 @@ public sealed class LoginCommandHandler(
     {
         var now = clock.UtcNow;
 
-        var data = await accountRepository.GetMemberPortalLoginDataAsync(request.Username, cancellationToken);
+        var data = await accountRepository.GetMemberPortalLoginDataAsync(request.Username, request.Lob, cancellationToken);
 
         // Unknown user: still run a hash verification against a dummy value so response timing does not
         // reveal whether the username exists (prevents user enumeration via timing).
@@ -52,6 +52,7 @@ public sealed class LoginCommandHandler(
         {
             Id = Guid.NewGuid(),
             MemberId = data.MemberId,
+            Lob = request.Lob,
             TokenHash = refreshToken.Hash,
             CreatedUtc = now,
             CreatedByIp = request.IpAddress,

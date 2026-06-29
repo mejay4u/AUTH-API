@@ -16,6 +16,12 @@ public class RefreshToken
     /// </summary>
     public Guid MemberId { get; set; }
 
+    /// <summary>
+    /// The LOB the member authenticated against. Persisted so the refresh flow can re-open the SAME
+    /// per-LOB database when issuing a new access token.
+    /// </summary>
+    public string Lob { get; set; } = string.Empty;
+
     /// <summary>SHA-256 hash (base64url) of the raw refresh token.</summary>
     public string TokenHash { get; set; } = string.Empty;
 

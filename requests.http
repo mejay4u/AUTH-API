@@ -8,7 +8,8 @@ Content-Type: application/json
 
 {
   "username": "jdoe",
-  "password": "P@ssw0rd!"
+  "password": "P@ssw0rd!",
+  "lob": "DENTAL"
 }
 
 ### 2. Call the protected endpoint with the access token
