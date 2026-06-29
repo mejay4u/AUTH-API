@@ -2,7 +2,6 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using AuthApi.Application.Common.Interfaces;
 using AuthApi.Application.Common.Models;
-using AuthApi.Domain.Members;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
@@ -24,7 +23,7 @@ public sealed class TokenService(
 
     private readonly JwtOptions _options = options.Value;
 
-    public AccessToken CreateAccessToken(Member member, IReadOnlyCollection<string> lobCodes, IReadOnlyCollection<int> planIds)
+    public AccessToken CreateAccessToken(MemberPortalLoginData member)
     {
         var now = clock.UtcNow;
         var expires = now.Add(_options.AccessTokenLifetime);
@@ -32,10 +31,10 @@ public sealed class TokenService(
 
         var claims = new List<Claim>
         {
-            new(JwtRegisteredClaimNames.Sub, member.Id.ToString()),
+            new(JwtRegisteredClaimNames.Sub, member.MemberId.ToString()),
             new(JwtRegisteredClaimNames.Jti, jti),
             new(JwtRegisteredClaimNames.UniqueName, member.Username),
-            new(ClaimTypes.NameIdentifier, member.Id.ToString())
+            new(ClaimTypes.NameIdentifier, member.MemberId.ToString())
         };
 
         if (!string.IsNullOrWhiteSpace(member.Email))
@@ -53,8 +52,8 @@ public sealed class TokenService(
             claims.Add(new Claim(JwtRegisteredClaimNames.FamilyName, member.LastName));
         }
 
-        claims.AddRange(lobCodes.Select(code => new Claim(LobClaimType, code)));
-        claims.AddRange(planIds.Select(id => new Claim(PlanClaimType, id.ToString(), ClaimValueTypes.Integer32)));
+        claims.AddRange(member.Lobs.Select(code => new Claim(LobClaimType, code)));
+        claims.AddRange(member.PlanIds.Select(id => new Claim(PlanClaimType, id.ToString(), ClaimValueTypes.Integer32)));
 
         var descriptor = new SecurityTokenDescriptor
         {

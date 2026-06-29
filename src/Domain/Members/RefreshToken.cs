@@ -9,8 +9,12 @@ public class RefreshToken
 {
     public Guid Id { get; set; }
 
+    /// <summary>
+    /// Owning member's id. This is a plain value, NOT a foreign key — the refresh-token table is owned by
+    /// the Auth API and lives in its own 'auth' schema, deliberately decoupled from the (database-first)
+    /// legacy user table so we never add constraints to it.
+    /// </summary>
     public Guid MemberId { get; set; }
-    public Member Member { get; set; } = null!;
 
     /// <summary>SHA-256 hash (base64url) of the raw refresh token.</summary>
     public string TokenHash { get; set; } = string.Empty;

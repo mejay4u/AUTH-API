@@ -1,6 +1,7 @@
 using AuthApi.Application.Common.Interfaces;
 using AuthApi.Application.Common.Security;
 using AuthApi.Infrastructure.Persistence;
+using AuthApi.Infrastructure.Persistence.Repositories;
 using AuthApi.Infrastructure.Security.Jwt;
 using AuthApi.Infrastructure.Security.PasswordHashing;
 using AuthApi.Infrastructure.Services;
@@ -22,6 +23,9 @@ public static class DependencyInjection
 
         services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
         services.AddScoped<IPasswordHasher, SaltedHashPasswordHasher>();
+
+        // Data-access boundary for login data (legacy AccountRepository equivalent, database-first).
+        services.AddScoped<IAccountRepository, AccountRepository>();
 
         // The RSA key must be stable for the process lifetime -> singleton.
         services.AddSingleton<RsaSigningKeyProvider>();

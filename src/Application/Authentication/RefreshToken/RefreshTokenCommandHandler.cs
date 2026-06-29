@@ -10,6 +10,7 @@ using DomainRefreshToken = AuthApi.Domain.Members.RefreshToken;
 namespace AuthApi.Application.Authentication.RefreshToken;
 
 public sealed class RefreshTokenCommandHandler(
+    IAccountRepository accountRepository,
     IApplicationDbContext db,
     ITokenService tokenService,
     IDateTimeProvider clock,
@@ -22,8 +23,6 @@ public sealed class RefreshTokenCommandHandler(
         var presentedHash = tokenService.HashRefreshToken(request.RefreshToken);
 
         var existing = await db.RefreshTokens
-            .Include(rt => rt.Member).ThenInclude(m => m.MemberLobs).ThenInclude(ml => ml.Lob)
-            .Include(rt => rt.Member).ThenInclude(m => m.MemberPlans)
             .FirstOrDefaultAsync(rt => rt.TokenHash == presentedHash, cancellationToken);
 
         if (existing is null)
@@ -41,14 +40,12 @@ public sealed class RefreshTokenCommandHandler(
             return AuthErrors.InvalidRefreshToken;
         }
 
-        var member = existing.Member;
-        if (!member.IsActive)
+        // Re-read the member's current login data (fresh LOBs/Plans) via the repository.
+        var data = await accountRepository.GetMemberPortalLoginDataByIdAsync(existing.MemberId, cancellationToken);
+        if (data is null || !data.IsActive)
         {
             return AuthErrors.InvalidRefreshToken;
         }
-
-        var lobCodes = member.LobCodes();
-        var planIds = member.PlanIds();
 
         var newRefresh = tokenService.CreateRefreshToken();
         existing.Revoke(now, request.IpAddress, newRefresh.Hash);
@@ -56,28 +53,28 @@ public sealed class RefreshTokenCommandHandler(
         db.RefreshTokens.Add(new DomainRefreshToken
         {
             Id = Guid.NewGuid(),
-            MemberId = member.Id,
+            MemberId = data.MemberId,
             TokenHash = newRefresh.Hash,
             CreatedUtc = now,
             CreatedByIp = request.IpAddress,
             ExpiresUtc = newRefresh.ExpiresUtc
         });
 
-        var accessToken = tokenService.CreateAccessToken(member, lobCodes, planIds);
+        var accessToken = tokenService.CreateAccessToken(data);
 
         await db.SaveChangesAsync(cancellationToken);
 
-        logger.LogInformation("Refresh token rotated for member {MemberId}.", member.Id);
+        logger.LogInformation("Refresh token rotated for member {MemberId}.", data.MemberId);
 
         return new AuthenticationResult(
-            member.Id,
-            member.Username,
+            data.MemberId,
+            data.Username,
             accessToken.Value,
             accessToken.ExpiresUtc,
             newRefresh.Raw,
             newRefresh.ExpiresUtc,
-            lobCodes,
-            planIds);
+            data.Lobs,
+            data.PlanIds);
     }
 
     private async Task RevokeAllActiveTokensAsync(Guid memberId, DateTime now, string? ip, CancellationToken ct)

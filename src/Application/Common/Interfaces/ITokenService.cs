@@ -1,5 +1,4 @@
 using AuthApi.Application.Common.Models;
-using AuthApi.Domain.Members;
 
 namespace AuthApi.Application.Common.Interfaces;
 
@@ -11,7 +10,7 @@ namespace AuthApi.Application.Common.Interfaces;
 public interface ITokenService
 {
     /// <summary>Create a short-lived signed JWT access token containing the member's LOBs and Plan IDs.</summary>
-    AccessToken CreateAccessToken(Member member, IReadOnlyCollection<string> lobCodes, IReadOnlyCollection<int> planIds);
+    AccessToken CreateAccessToken(MemberPortalLoginData member);
 
     /// <summary>Create a cryptographically-random refresh token (raw value + its stored hash).</summary>
     RefreshTokenValue CreateRefreshToken();
