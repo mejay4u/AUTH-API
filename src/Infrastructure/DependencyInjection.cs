@@ -3,9 +3,13 @@ using AuthApi.Application.Common.Security;
 using AuthApi.Infrastructure.Persistence;
 using AuthApi.Infrastructure.Persistence.Connections;
 using AuthApi.Infrastructure.Persistence.Repositories;
+using AuthApi.Application.Sso;
 using AuthApi.Infrastructure.Security.Jwt;
 using AuthApi.Infrastructure.Security.PasswordHashing;
 using AuthApi.Infrastructure.Services;
+using AuthApi.Infrastructure.Sso;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,6 +26,7 @@ public static class DependencyInjection
         AddOptions(services, configuration, isDevelopment);
         AddPersistence(services, configuration);
         AddAccountDataAccess(services, configuration);
+        AddSsoServices(services, configuration);
 
         services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
         services.AddScoped<IPasswordHasher, SaltedHashPasswordHasher>();
@@ -100,5 +105,36 @@ public static class DependencyInjection
         {
             services.AddScoped<IAccountRepository, MockAccountRepository>();
         }
+    }
+
+    /// <summary>
+    /// Wires the SSO feature (rewrite of the legacy GetSSO flow).
+    /// SqlServer  → Dapper calling the existing SSO config proc, wrapped in a memory-cache decorator.
+    /// InMemory   → mock configuration so the endpoint runs without the real member DB.
+    /// PingFederate is stubbed until the real adapter is ported.
+    /// </summary>
+    private static void AddSsoServices(IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddOptions<SsoOptions>()
+            .Bind(configuration.GetSection(SsoOptions.SectionName));
+
+        services.AddMemoryCache();
+
+        var provider = configuration.GetValue<string>("Database:Provider") ?? "InMemory";
+
+        if (provider.Equals("SqlServer", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddScoped<DapperSsoConfigurationRepository>();
+            services.AddScoped<ISsoConfigurationRepository>(sp => new CachedSsoConfigurationRepository(
+                sp.GetRequiredService<DapperSsoConfigurationRepository>(),
+                sp.GetRequiredService<IMemoryCache>(),
+                sp.GetRequiredService<IOptions<SsoOptions>>()));
+        }
+        else
+        {
+            services.AddScoped<ISsoConfigurationRepository, MockSsoConfigurationRepository>();
+        }
+
+        services.AddScoped<IPingFederateService, StubPingFederateService>();
     }
 }

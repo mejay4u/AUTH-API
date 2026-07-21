@@ -60,6 +60,7 @@ app.UseAuthorization();
 
 app.MapAuthEndpoints();
 app.MapMemberEndpoints();
+app.MapSsoEndpoints();
 app.MapDiscoveryEndpoints();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))

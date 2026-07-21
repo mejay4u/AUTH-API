@@ -51,6 +51,7 @@ at `/swagger`. No real database is required to try it.
 | POST   | `/api/v1/auth/login`                 | anonymous | Validate credentials → access + refresh tokens     |
 | POST   | `/api/v1/auth/refresh`               | anonymous | Rotate refresh token → new access token            |
 | GET    | `/api/v1/members/me`                 | **JWT**   | Test endpoint: returns member details from claims  |
+| GET    | `/api/v1/sso`                        | **JWT**   | SSO config + federated sign-on URL per LOB/SSO name |
 | GET    | `/.well-known/jwks.json`             | anonymous | Public keys for downstream services to validate    |
 | GET    | `/.well-known/openid-configuration`  | anonymous | Minimal OIDC discovery document                    |
 | GET    | `/health`                            | anonymous | Health probe                                       |

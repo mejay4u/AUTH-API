@@ -24,11 +24,19 @@ Content-Type: application/json
   "refreshToken": "{{login.response.body.refreshToken}}"
 }
 
-### 4. JWKS – public keys for downstream microservices
+### 4. SSO – configuration + federated sign-on URL for a LOB/SSO name (mocked PingFed in Development)
+GET {{base}}/api/v1/sso?lob=2100&ssoName=CHATSSO
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### 4b. SSO – HRA with the age-based assessment rule (dateOfBirth used only if the JWT has no birthdate claim)
+GET {{base}}/api/v1/sso?lob=2100&ssoName=HRA&dateOfBirth=2010-04-01
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### 5. JWKS – public keys for downstream microservices
 GET {{base}}/.well-known/jwks.json
 
-### 5. OIDC-style discovery document
+### 6. OIDC-style discovery document
 GET {{base}}/.well-known/openid-configuration
 
-### 6. Health
+### 7. Health
 GET {{base}}/health
