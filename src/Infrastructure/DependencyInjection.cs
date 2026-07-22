@@ -135,6 +135,15 @@ public static class DependencyInjection
             services.AddScoped<ISsoConfigurationRepository, MockSsoConfigurationRepository>();
         }
 
-        services.AddScoped<IPingFederateService, StubPingFederateService>();
+        // The OpenToken adapter generates the complete sign-on URL (PingFedUrl + token query
+        // parameter). Sso:PingFederate:Enabled=false falls back to the stub (no token generation).
+        if (configuration.GetValue<bool?>($"{SsoOptions.SectionName}:PingFederate:Enabled") ?? true)
+        {
+            services.AddScoped<IPingFederateService, OpenTokenPingFederateService>();
+        }
+        else
+        {
+            services.AddScoped<IPingFederateService, StubPingFederateService>();
+        }
     }
 }

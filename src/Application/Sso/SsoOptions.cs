@@ -19,6 +19,28 @@ public sealed class SsoOptions
     public TimeSpan ConfigCacheSlidingExpiration { get; init; } = TimeSpan.FromDays(1);
 
     public HraAssessmentOptions HraAssessment { get; init; } = new();
+
+    public PingFederateOptions PingFederate { get; init; } = new();
+}
+
+/// <summary>
+/// PingFederate OpenToken hand-off settings. The agent configuration files referenced by each SSO
+/// row's <c>AgentFileLocationPath</c> live under <see cref="AgentFilesPath"/> (legacy
+/// <c>App_Data/AgentFiles</c>).
+/// </summary>
+public sealed class PingFederateOptions
+{
+    /// <summary>
+    /// When false the stub implementation is used: the configured URL is returned without an
+    /// OpenToken, so no complete sign-on URL is generated.
+    /// </summary>
+    public bool Enabled { get; init; } = true;
+
+    /// <summary>
+    /// Directory holding the agent-config .txt files downloaded from the PingFederate admin console.
+    /// A relative path is resolved against the content root (and the app base directory as fallback).
+    /// </summary>
+    public string AgentFilesPath { get; init; } = Path.Combine("App_Data", "AgentFiles");
 }
 
 /// <summary>

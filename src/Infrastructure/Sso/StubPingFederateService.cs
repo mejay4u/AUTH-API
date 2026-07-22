@@ -4,10 +4,10 @@ using Microsoft.Extensions.Logging;
 namespace AuthApi.Infrastructure.Sso;
 
 /// <summary>
-/// Placeholder PingFederate boundary so the API runs end-to-end before the real integration is wired.
-/// Every method returns the configured PingFed URL for the SSO and logs that it is stubbed.
-/// TODO: replace with an adapter that ports the legacy <c>PingFedService</c> implementations
-/// (Abarca/HRA Jiva/Plan of Care/Chat/Softheon/Certifi/SDS) behind <see cref="IPingFederateService"/>.
+/// Placeholder PingFederate boundary, used only when <c>Sso:PingFederate:Enabled</c> is false.
+/// Every method returns the configured PingFed URL for the SSO — WITHOUT the OpenToken query
+/// parameter, so the URL is not a complete sign-on URL. The real adapter is
+/// <see cref="OpenTokenPingFederateService"/>.
 /// </summary>
 public sealed class StubPingFederateService(ILogger<StubPingFederateService> logger) : IPingFederateService
 {

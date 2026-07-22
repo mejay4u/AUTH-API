@@ -31,7 +31,7 @@ public sealed class MockSsoConfigurationRepository : ISsoConfigurationRepository
                 Description: $"{name} (mock configuration for LOB {lob})",
                 PingFedUrl: $"https://pingfed.example.local/idp/startSSO.ping?sso={name.ToLowerInvariant()}&lob={lob}",
                 PingFedReturnUrl: $"https://portal.example.local/sso/{name.ToLowerInvariant()}/return",
-                AgentFileLocationPath: null,
+                AgentFileLocationPath: "mock-agent-config-qa.txt",
                 AssessmentName: name == SsoNames.Hra ? "GeneralAssessment" : null,
                 Level: "1",
                 Active: true,
