@@ -108,10 +108,10 @@ public static class DependencyInjection
     }
 
     /// <summary>
-    /// Wires the SSO feature (rewrite of the legacy GetSSO flow).
-    /// SqlServer  → Dapper calling the existing SSO config proc, wrapped in a memory-cache decorator.
-    /// InMemory   → mock configuration so the endpoint runs without the real member DB.
-    /// PingFederate is stubbed until the real adapter is ported.
+    /// Wires the SSO feature (rewrite of the legacy GetSSO flow): Dapper calling the existing SSO
+    /// config proc (requires ConnectionStrings:MemberDb), wrapped in a memory-cache decorator, and
+    /// the OpenToken adapter that generates the complete sign-on URL (PingFedUrl + token query
+    /// parameter).
     /// </summary>
     private static void AddSsoServices(IServiceCollection services, IConfiguration configuration)
     {
@@ -120,30 +120,12 @@ public static class DependencyInjection
 
         services.AddMemoryCache();
 
-        var provider = configuration.GetValue<string>("Database:Provider") ?? "InMemory";
+        services.AddScoped<DapperSsoConfigurationRepository>();
+        services.AddScoped<ISsoConfigurationRepository>(sp => new CachedSsoConfigurationRepository(
+            sp.GetRequiredService<DapperSsoConfigurationRepository>(),
+            sp.GetRequiredService<IMemoryCache>(),
+            sp.GetRequiredService<IOptions<SsoOptions>>()));
 
-        if (provider.Equals("SqlServer", StringComparison.OrdinalIgnoreCase))
-        {
-            services.AddScoped<DapperSsoConfigurationRepository>();
-            services.AddScoped<ISsoConfigurationRepository>(sp => new CachedSsoConfigurationRepository(
-                sp.GetRequiredService<DapperSsoConfigurationRepository>(),
-                sp.GetRequiredService<IMemoryCache>(),
-                sp.GetRequiredService<IOptions<SsoOptions>>()));
-        }
-        else
-        {
-            services.AddScoped<ISsoConfigurationRepository, MockSsoConfigurationRepository>();
-        }
-
-        // The OpenToken adapter generates the complete sign-on URL (PingFedUrl + token query
-        // parameter). Sso:PingFederate:Enabled=false falls back to the stub (no token generation).
-        if (configuration.GetValue<bool?>($"{SsoOptions.SectionName}:PingFederate:Enabled") ?? true)
-        {
-            services.AddScoped<IPingFederateService, OpenTokenPingFederateService>();
-        }
-        else
-        {
-            services.AddScoped<IPingFederateService, StubPingFederateService>();
-        }
+        services.AddScoped<IPingFederateService, OpenTokenPingFederateService>();
     }
 }

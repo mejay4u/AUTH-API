@@ -72,7 +72,7 @@ public sealed class PingFederateAgentConfig
     private static byte[] DecodeSharedSecret(string password)
     {
         // The admin console writes the password base64-encoded; tolerate a plain-text value so
-        // hand-written files (mock/dev) also work.
+        // hand-written files (dev) also work.
         try
         {
             return Convert.FromBase64String(password);

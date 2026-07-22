@@ -51,12 +51,6 @@ public sealed class ChatSsoOptions
 public sealed class PingFederateOptions
 {
     /// <summary>
-    /// When false the stub implementation is used: the configured URL is returned without an
-    /// OpenToken, so no complete sign-on URL is generated.
-    /// </summary>
-    public bool Enabled { get; init; } = true;
-
-    /// <summary>
     /// Directory holding the agent-config .txt files downloaded from the PingFederate admin console.
     /// A relative path is resolved against the content root (and the app base directory as fallback).
     /// </summary>

@@ -15,6 +15,6 @@ keys/
 ## Logs
 *.log
 
-## PingFederate agent configuration files carry real shared secrets — only the mock is committed
+## PingFederate agent configuration files carry real shared secrets — never commit them
 src/Api/App_Data/AgentFiles/*
-!src/Api/App_Data/AgentFiles/mock-agent-config-qa.txt
+!src/Api/App_Data/AgentFiles/.gitkeep

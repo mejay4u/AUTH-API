@@ -24,7 +24,7 @@ Content-Type: application/json
   "refreshToken": "{{login.response.body.refreshToken}}"
 }
 
-### 4. SSO – configuration + federated sign-on URL for a LOB/SSO name (mocked PingFed in Development)
+### 4. SSO – configuration + federated sign-on URL for a LOB/SSO name (requires ConnectionStrings:MemberDb and the agent files)
 GET {{base}}/api/v1/sso?lob=2100&ssoName=CHATSSO
 Authorization: Bearer {{login.response.body.accessToken}}
 
