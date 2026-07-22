@@ -1,8 +1,7 @@
-using System.Globalization;
+using System.Collections;
 using System.Security.Cryptography;
-using AuthApi.Application.Common.Interfaces;
 using AuthApi.Application.Sso;
-using AuthApi.Infrastructure.Sso.OpenToken;
+using MEM.Next.Package.OpenTokenAgent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -10,26 +9,22 @@ namespace AuthApi.Infrastructure.Sso;
 
 /// <summary>
 /// The real PingFederate boundary — the port of the legacy <c>PingFedService</c>. Each method builds
-/// the connection's user-info attribute set exactly as the legacy method did, generates an OpenToken
-/// with the agent configuration named by the SSO row's <c>AgentFileLocationPath</c>, and returns the
-/// COMPLETE sign-on URL: the connection's base URL with the token appended as its query parameter
-/// (the parameter name comes from the agent file's <c>token-name</c>, e.g. <c>JivaZeomegaOpenToken</c>
-/// for the Jiva connections, <c>AbarcaOpentoken</c> for Abarca, <c>opentoken</c> for the rest).
-/// The token is appended as a proper query parameter, which removes the legacy
-/// <c>Replace("opentoken%0D=", ...)</c> URL-mangling fix-ups.
+/// the connection's user-info attribute set exactly as the legacy method did, then delegates token
+/// generation to the shared <see cref="Agent"/> from the <c>MEM.Next.Package.OpenTokenAgent</c> package
+/// — the same code the legacy service used — so the OpenToken crypto (password de-obfuscation, key
+/// derivation, cipher, MAC, lifetime stamping) is identical to what the receiving PingFederate expects.
+/// The complete sign-on URL is the connection's base URL with the token appended as its query parameter
+/// (the parameter name comes from the agent file's <c>token-name</c>, e.g. <c>JivaZeomegaOpenToken</c>).
 /// The legacy <c>ParseSSOTokenCSR</c> flow is deliberately not ported.
 /// </summary>
 public sealed class OpenTokenPingFederateService(
     IOptions<SsoOptions> options,
-    IDateTimeProvider clock,
     ILogger<OpenTokenPingFederateService> logger) : IPingFederateService
 {
-    // Standard OpenToken lifetime attributes. The agent SDK stamps these on every token it writes and
-    // the receiving PingFederate adapter validates them — a token without them is rejected.
-    private const string NotBeforeAttribute = "not-before";
-    private const string NotOnOrAfterAttribute = "not-on-or-after";
-    private const string RenewUntilAttribute = "renew-until";
-    private const string TimestampFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'";
+    private const string TokenNameProperty = "token-name=";
+
+    /// <summary>OpenToken default query-parameter name when the agent file omits <c>token-name</c>.</summary>
+    private const string DefaultTokenName = "opentoken";
 
     /// <summary>Legacy parity: Jiva receives the member id suffixed with the subscriber sequence.</summary>
     private const string JivaMemberIdSuffix = "-01";
@@ -64,6 +59,8 @@ public sealed class OpenTokenPingFederateService(
 
         // Legacy GetHRAJivaSSO. "Source" carries the resolved assessment name — the handler has
         // already applied the age-based HRA assessment rule to the first configuration row.
+        // NOTE: legacy sends "lob" = GetLobId(ssoModel, lobSection) (the LOB's mapped AppId/AltId),
+        // not the raw request LOB. Wire the LOB metadata + GetLobId here to match once available.
         var attributes = new Dictionary<string, string>
         {
             ["subject"] = memberId,
@@ -178,20 +175,20 @@ public sealed class OpenTokenPingFederateService(
         // Legacy GetSDSSSO appended an empty suffix for both audiences.
         BuildSsoUrl(context, context.Configurations[0].PingFedUrl, attributes);
 
-    public Task<string?> GenerateSsoTokenAsync(
+    public async Task<string?> GenerateSsoTokenAsync(
         string agentFileName,
         IReadOnlyDictionary<string, string> attributes,
         CancellationToken cancellationToken)
     {
         try
         {
-            var agent = PingFederateAgentConfig.Load(ResolveAgentFilePath(agentFileName));
-            return Task.FromResult<string?>(WriteToken(agent, attributes));
+            var agent = new Agent(ResolveAgentFilePath(agentFileName));
+            return await agent.WriteTokenAsync((IDictionary)new Dictionary<string, string>(attributes));
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to generate an OpenToken with agent file {AgentFile}.", agentFileName);
-            return Task.FromResult<string?>(null);
+            return null;
         }
     }
 
@@ -202,16 +199,15 @@ public sealed class OpenTokenPingFederateService(
     {
         try
         {
-            var agent = PingFederateAgentConfig.Load(ResolveAgentFilePath(agentFileName));
-            var attributes = OpenTokenReader.Read(token, agent.SharedSecret);
+            // The agent decrypts and validates the token's lifetime window internally.
+            var agent = new Agent(ResolveAgentFilePath(agentFileName));
+            var parsed = agent.ReadToken(token);
 
-            if (!IsWithinLifetime(attributes, agent))
-            {
-                logger.LogWarning("Inbound OpenToken for agent file {AgentFile} is outside its validity window.", agentFileName);
-                return Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<string>>?>(null);
-            }
-
-            return Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<string>>?>(attributes);
+            IReadOnlyDictionary<string, IReadOnlyList<string>> result = parsed.ToDictionary(
+                pair => pair.Key,
+                pair => (IReadOnlyList<string>)new[] { pair.Value },
+                StringComparer.OrdinalIgnoreCase);
+            return Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<string>>?>(result);
         }
         catch (Exception ex)
         {
@@ -221,8 +217,8 @@ public sealed class OpenTokenPingFederateService(
         }
     }
 
-    private Task<string?> BuildSsoUrl(
-        SsoUrlContext context, string? baseUrl, IEnumerable<KeyValuePair<string, string>> userInfo)
+    private async Task<string?> BuildSsoUrl(
+        SsoUrlContext context, string? baseUrl, IReadOnlyDictionary<string, string> userInfo)
     {
         var configuration = context.Configurations[0];
 
@@ -231,7 +227,7 @@ public sealed class OpenTokenPingFederateService(
             if (string.IsNullOrWhiteSpace(baseUrl))
             {
                 logger.LogWarning("SSO {SsoName} for LOB {Lob} has no PingFedUrl configured.", context.SsoName, context.Lob);
-                return Task.FromResult<string?>(null);
+                return null;
             }
 
             if (string.IsNullOrWhiteSpace(configuration.AgentFileLocationPath))
@@ -239,14 +235,19 @@ public sealed class OpenTokenPingFederateService(
                 logger.LogWarning(
                     "SSO {SsoName} for LOB {Lob} has no AgentFileLocationPath configured; cannot generate an OpenToken.",
                     context.SsoName, context.Lob);
-                return Task.FromResult<string?>(null);
+                return null;
             }
 
-            var agent = PingFederateAgentConfig.Load(ResolveAgentFilePath(configuration.AgentFileLocationPath));
-            var token = WriteToken(agent, userInfo);
+            var agentFilePath = ResolveAgentFilePath(configuration.AgentFileLocationPath);
 
+            // The agent stamps the lifetime attributes and does the encryption; the crypto is the
+            // package's, so it matches the receiving PingFederate exactly.
+            var agent = new Agent(agentFilePath);
+            var token = await agent.WriteTokenAsync((IDictionary)new Dictionary<string, string>(userInfo));
+
+            var tokenName = ReadTokenName(agentFilePath);
             var separator = baseUrl.Contains('?') ? '&' : '?';
-            return Task.FromResult<string?>($"{baseUrl}{separator}{agent.TokenName}={token}");
+            return $"{baseUrl}{separator}{tokenName}={token}";
         }
         catch (Exception ex)
         {
@@ -255,70 +256,27 @@ public sealed class OpenTokenPingFederateService(
             logger.LogError(ex,
                 "Failed to generate the PingFederate sign-on URL for SSO {SsoName}, LOB {Lob}, agent file {AgentFile}.",
                 context.SsoName, context.Lob, configuration.AgentFileLocationPath);
-            return Task.FromResult<string?>(null);
+            return null;
         }
     }
 
     /// <summary>
-    /// Writes the token with the standard lifetime attributes appended, driven by the agent file's
-    /// <c>token-lifetime</c>/<c>renew-until</c> — agent SDK parity. Caller-supplied values win.
+    /// Reads the <c>token-name</c> from the agent file — the query-parameter name the token is
+    /// delivered in (the <see cref="Agent"/> keeps its parsed config private, so we read this one
+    /// value ourselves to assemble the URL).
     /// </summary>
-    private string WriteToken(PingFederateAgentConfig agent, IEnumerable<KeyValuePair<string, string>> userInfo)
+    private static string ReadTokenName(string agentFilePath)
     {
-        var attributes = new List<KeyValuePair<string, string>>(userInfo);
-        var supplied = attributes.Select(a => a.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var now = clock.UtcNow;
-
-        AddIfMissing(NotBeforeAttribute, now);
-        AddIfMissing(NotOnOrAfterAttribute, now + agent.TokenLifetime);
-        AddIfMissing(RenewUntilAttribute, now + agent.RenewUntil);
-
-        return OpenTokenWriter.Write(attributes, agent.SharedSecret, agent.CipherSuite);
-
-        void AddIfMissing(string name, DateTime value)
+        foreach (var rawLine in File.ReadLines(agentFilePath))
         {
-            if (!supplied.Contains(name))
+            var line = rawLine.Trim();
+            if (line.StartsWith(TokenNameProperty, StringComparison.OrdinalIgnoreCase))
             {
-                attributes.Add(new(name, value.ToString(TimestampFormat, CultureInfo.InvariantCulture)));
+                return line[TokenNameProperty.Length..].Trim();
             }
         }
-    }
 
-    /// <summary>
-    /// Validates an inbound token's lifetime attributes the way the agent SDK does: not yet valid
-    /// (with the agent's clock-skew tolerance) or expired tokens are rejected. Tokens without
-    /// lifetime attributes are accepted for legacy compatibility.
-    /// </summary>
-    private bool IsWithinLifetime(IReadOnlyDictionary<string, IReadOnlyList<string>> attributes, PingFederateAgentConfig agent)
-    {
-        var now = clock.UtcNow;
-
-        if (TryGetTimestamp(attributes, NotBeforeAttribute, out var notBefore) &&
-            now < notBefore - agent.NotBeforeTolerance)
-        {
-            return false;
-        }
-
-        if (TryGetTimestamp(attributes, NotOnOrAfterAttribute, out var notOnOrAfter) &&
-            now >= notOnOrAfter)
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-    private static bool TryGetTimestamp(
-        IReadOnlyDictionary<string, IReadOnlyList<string>> attributes, string name, out DateTime value)
-    {
-        value = default;
-        return attributes.TryGetValue(name, out var values)
-            && values.Count > 0
-            && DateTime.TryParse(
-                values[0],
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
-                out value);
+        return DefaultTokenName;
     }
 
     /// <summary>

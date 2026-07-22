@@ -4,6 +4,19 @@
     <ProjectReference Include="..\Application\AuthApi.Application.csproj" />
   </ItemGroup>
 
+  <!--
+    PingFederate OpenToken generation is delegated to the shared MEM.Next.Package.OpenTokenAgent
+    package (the same code the legacy service uses), so the token crypto matches the receiving
+    PingFederate exactly. Supply the package below — either the project reference if it is in the
+    solution, or the built DLL under libs/ (not committed). Adjust the path/style to your setup.
+  -->
+  <ItemGroup>
+    <!-- <ProjectReference Include="..\..\..\MEM.Next.Package.OpenTokenAgent\MEM.Next.Package.OpenTokenAgent.csproj" /> -->
+    <Reference Include="MEM.Next.Package.OpenTokenAgent">
+      <HintPath>libs\MEM.Next.Package.OpenTokenAgent.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Dapper" />
     <PackageReference Include="Microsoft.Data.SqlClient" />
