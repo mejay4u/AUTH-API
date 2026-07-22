@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Security.Cryptography;
+using AuthApi.Application.Common.Interfaces;
 using AuthApi.Application.Sso;
 using AuthApi.Infrastructure.Sso.OpenToken;
 using Microsoft.Extensions.Logging;
@@ -19,8 +21,16 @@ namespace AuthApi.Infrastructure.Sso;
 /// </summary>
 public sealed class OpenTokenPingFederateService(
     IOptions<SsoOptions> options,
+    IDateTimeProvider clock,
     ILogger<OpenTokenPingFederateService> logger) : IPingFederateService
 {
+    // Standard OpenToken lifetime attributes. The agent SDK stamps these on every token it writes and
+    // the receiving PingFederate adapter validates them — a token without them is rejected.
+    private const string NotBeforeAttribute = "not-before";
+    private const string NotOnOrAfterAttribute = "not-on-or-after";
+    private const string RenewUntilAttribute = "renew-until";
+    private const string TimestampFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'";
+
     /// <summary>Legacy parity: Jiva receives the member id suffixed with the subscriber sequence.</summary>
     private const string JivaMemberIdSuffix = "-01";
 
@@ -176,7 +186,7 @@ public sealed class OpenTokenPingFederateService(
         try
         {
             var agent = PingFederateAgentConfig.Load(ResolveAgentFilePath(agentFileName));
-            return Task.FromResult<string?>(OpenTokenWriter.Write(attributes, agent.SharedSecret, agent.CipherSuite));
+            return Task.FromResult<string?>(WriteToken(agent, attributes));
         }
         catch (Exception ex)
         {
@@ -193,8 +203,15 @@ public sealed class OpenTokenPingFederateService(
         try
         {
             var agent = PingFederateAgentConfig.Load(ResolveAgentFilePath(agentFileName));
-            return Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<string>>?>(
-                OpenTokenReader.Read(token, agent.SharedSecret));
+            var attributes = OpenTokenReader.Read(token, agent.SharedSecret);
+
+            if (!IsWithinLifetime(attributes, agent))
+            {
+                logger.LogWarning("Inbound OpenToken for agent file {AgentFile} is outside its validity window.", agentFileName);
+                return Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<string>>?>(null);
+            }
+
+            return Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<string>>?>(attributes);
         }
         catch (Exception ex)
         {
@@ -226,7 +243,7 @@ public sealed class OpenTokenPingFederateService(
             }
 
             var agent = PingFederateAgentConfig.Load(ResolveAgentFilePath(configuration.AgentFileLocationPath));
-            var token = OpenTokenWriter.Write(userInfo, agent.SharedSecret, agent.CipherSuite);
+            var token = WriteToken(agent, userInfo);
 
             var separator = baseUrl.Contains('?') ? '&' : '?';
             return Task.FromResult<string?>($"{baseUrl}{separator}{agent.TokenName}={token}");
@@ -240,6 +257,68 @@ public sealed class OpenTokenPingFederateService(
                 context.SsoName, context.Lob, configuration.AgentFileLocationPath);
             return Task.FromResult<string?>(null);
         }
+    }
+
+    /// <summary>
+    /// Writes the token with the standard lifetime attributes appended, driven by the agent file's
+    /// <c>token-lifetime</c>/<c>renew-until</c> — agent SDK parity. Caller-supplied values win.
+    /// </summary>
+    private string WriteToken(PingFederateAgentConfig agent, IEnumerable<KeyValuePair<string, string>> userInfo)
+    {
+        var attributes = new List<KeyValuePair<string, string>>(userInfo);
+        var supplied = attributes.Select(a => a.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var now = clock.UtcNow;
+
+        AddIfMissing(NotBeforeAttribute, now);
+        AddIfMissing(NotOnOrAfterAttribute, now + agent.TokenLifetime);
+        AddIfMissing(RenewUntilAttribute, now + agent.RenewUntil);
+
+        return OpenTokenWriter.Write(attributes, agent.SharedSecret, agent.CipherSuite);
+
+        void AddIfMissing(string name, DateTime value)
+        {
+            if (!supplied.Contains(name))
+            {
+                attributes.Add(new(name, value.ToString(TimestampFormat, CultureInfo.InvariantCulture)));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Validates an inbound token's lifetime attributes the way the agent SDK does: not yet valid
+    /// (with the agent's clock-skew tolerance) or expired tokens are rejected. Tokens without
+    /// lifetime attributes are accepted for legacy compatibility.
+    /// </summary>
+    private bool IsWithinLifetime(IReadOnlyDictionary<string, IReadOnlyList<string>> attributes, PingFederateAgentConfig agent)
+    {
+        var now = clock.UtcNow;
+
+        if (TryGetTimestamp(attributes, NotBeforeAttribute, out var notBefore) &&
+            now < notBefore - agent.NotBeforeTolerance)
+        {
+            return false;
+        }
+
+        if (TryGetTimestamp(attributes, NotOnOrAfterAttribute, out var notOnOrAfter) &&
+            now >= notOnOrAfter)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryGetTimestamp(
+        IReadOnlyDictionary<string, IReadOnlyList<string>> attributes, string name, out DateTime value)
+    {
+        value = default;
+        return attributes.TryGetValue(name, out var values)
+            && values.Count > 0
+            && DateTime.TryParse(
+                values[0],
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+                out value);
     }
 
     /// <summary>

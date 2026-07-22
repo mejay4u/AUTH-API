@@ -20,6 +20,9 @@ public sealed class PingFederateAgentConfig
         CipherSuite = cipherSuite;
         SharedSecret = sharedSecret;
         Properties = properties;
+        TokenLifetime = SecondsProperty("token-lifetime", 300);
+        RenewUntil = SecondsProperty("renew-until", 43200);
+        NotBeforeTolerance = SecondsProperty("not-before-tolerance", 0);
     }
 
     /// <summary>Query-string parameter the token is delivered in (e.g. <c>JivaZeomegaOpenToken</c>).</summary>
@@ -31,6 +34,21 @@ public sealed class PingFederateAgentConfig
     public byte[] SharedSecret { get; }
 
     public IReadOnlyDictionary<string, string> Properties { get; }
+
+    /// <summary>Validity window of an issued token (<c>token-lifetime</c>, seconds).</summary>
+    public TimeSpan TokenLifetime { get; }
+
+    /// <summary>How long an issued token may be renewed (<c>renew-until</c>, seconds).</summary>
+    public TimeSpan RenewUntil { get; }
+
+    /// <summary>Allowed clock skew when validating an inbound token (<c>not-before-tolerance</c>, seconds).</summary>
+    public TimeSpan NotBeforeTolerance { get; }
+
+    private TimeSpan SecondsProperty(string name, int defaultSeconds) =>
+        TimeSpan.FromSeconds(
+            Properties.TryGetValue(name, out var text) && int.TryParse(text, out var seconds)
+                ? seconds
+                : defaultSeconds);
 
     public static PingFederateAgentConfig Load(string path)
     {
