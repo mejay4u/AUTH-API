@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using AuthApi.Application.Sso;
 using AuthApi.Infrastructure.Sso.OpenToken;
 using Microsoft.Extensions.Logging;
@@ -7,12 +8,14 @@ namespace AuthApi.Infrastructure.Sso;
 
 /// <summary>
 /// The real PingFederate boundary — the port of the legacy <c>PingFedService</c>. Each method builds
-/// the connection's user-info attribute set, generates an OpenToken with the agent configuration named
-/// by the SSO row's <c>AgentFileLocationPath</c>, and returns the COMPLETE sign-on URL: the configured
-/// <c>PingFedUrl</c> with the token appended as its query parameter, e.g.
-/// <c>https://fs-uat.../idp/startSSO.ping?PartnerSpId=...&amp;JivaZeomegaOpenToken=&lt;token&gt;</c>.
+/// the connection's user-info attribute set exactly as the legacy method did, generates an OpenToken
+/// with the agent configuration named by the SSO row's <c>AgentFileLocationPath</c>, and returns the
+/// COMPLETE sign-on URL: the connection's base URL with the token appended as its query parameter
+/// (the parameter name comes from the agent file's <c>token-name</c>, e.g. <c>JivaZeomegaOpenToken</c>
+/// for the Jiva connections, <c>AbarcaOpentoken</c> for Abarca, <c>opentoken</c> for the rest).
 /// The token is appended as a proper query parameter, which removes the legacy
-/// <c>Replace("JivaZeomegaOpenToken%3D=", ...)</c> URL-mangling fix-up.
+/// <c>Replace("opentoken%0D=", ...)</c> URL-mangling fix-ups.
+/// The legacy <c>ParseSSOTokenCSR</c> flow is deliberately not ported.
 /// </summary>
 public sealed class OpenTokenPingFederateService(
     IOptions<SsoOptions> options,
@@ -21,72 +24,194 @@ public sealed class OpenTokenPingFederateService(
     /// <summary>Legacy parity: Jiva receives the member id suffixed with the subscriber sequence.</summary>
     private const string JivaMemberIdSuffix = "-01";
 
-    public Task<string?> GetAbarcaSsoAsync(SsoUrlContext context, CancellationToken cancellationToken) =>
-        BuildSsoUrlAsync(context, BaseMemberAttributes(context));
+    /// <summary>Legacy parity: Softheon receives only the first nine characters of the member id.</summary>
+    private const int SoftheonMemberIdLength = 9;
 
-    public Task<string?> GetHraJivaSsoAsync(SsoUrlContext context, CancellationToken cancellationToken) =>
-        BuildSsoUrlAsync(context, JivaAttributes(context));
+    // Legacy GetCertifiSSO: String.Format("{0}{1}", SSOPingFedURL, member ? ... : ...) — the suffix is
+    // concatenated directly onto the configured URL, no separator.
+    private const string CertifiMemberUrlSuffix = "goToViewPayInvoice";
+    private const string CertifiDependentsUrlSuffix = "viewEntityList";
 
-    public Task<string?> GetPlanOfCareSsoAsync(SsoUrlContext context, CancellationToken cancellationToken) =>
-        BuildSsoUrlAsync(context, JivaAttributes(context));
+    public Task<string?> GetAbarcaSsoAsync(SsoUrlContext context, CancellationToken cancellationToken)
+    {
+        var memberId = context.Member.PrimaryMemberId();
 
-    public Task<string?> GetChatSsoAsync(SsoUrlContext context, CancellationToken cancellationToken) =>
-        BuildSsoUrlAsync(context, BaseMemberAttributes(context));
+        // Legacy GetAbarcaSSO: subject/memberID plus the LOB's Argus PCN.
+        var attributes = new Dictionary<string, string>
+        {
+            ["subject"] = memberId,
+            ["memberID"] = memberId,
+            ["PCN"] = context.Configurations[0].ArgusCustomerId ?? string.Empty
+        };
 
-    public Task<string?> GetSoftheonSsoAsync(SsoUrlContext context, CancellationToken cancellationToken) =>
-        BuildSsoUrlAsync(context, BaseMemberAttributes(context));
+        return BuildSsoUrl(context, context.Configurations[0].PingFedUrl, attributes);
+    }
+
+    public Task<string?> GetHraJivaSsoAsync(SsoUrlContext context, CancellationToken cancellationToken)
+    {
+        var member = context.Member;
+        var memberId = member.PrimaryMemberId();
+
+        // Legacy GetHRAJivaSSO. "Source" carries the resolved assessment name — the handler has
+        // already applied the age-based HRA assessment rule to the first configuration row.
+        var attributes = new Dictionary<string, string>
+        {
+            ["subject"] = memberId,
+            ["UserID"] = memberId,
+            ["FirstName"] = member.FirstName ?? string.Empty,
+            ["LastName"] = member.LastName ?? string.Empty,
+            ["UserRoles"] = "MEMBER",
+            ["lob"] = context.Lob,
+            ["MemberID"] = memberId + JivaMemberIdSuffix,
+            ["Source"] = context.Configurations[0].AssessmentName ?? string.Empty
+        };
+
+        return BuildSsoUrl(context, context.Configurations[0].PingFedUrl, attributes);
+    }
+
+    public Task<string?> GetPlanOfCareSsoAsync(SsoUrlContext context, CancellationToken cancellationToken)
+    {
+        var member = context.Member;
+
+        // Legacy GetPlanOfCareSSO: a designee (role "D") signs on with their own id and role; a
+        // member with theirs. Both carry the LOB.
+        var attributes = member.IsMember || string.IsNullOrEmpty(member.DesigneeId)
+            ? new Dictionary<string, string>
+            {
+                ["subject"] = member.PrimaryMemberId(),
+                ["UserNID"] = member.PrimaryMemberId(),
+                ["UserRole"] = "memberportal-member",
+                ["LOB"] = context.Lob
+            }
+            : new Dictionary<string, string>
+            {
+                ["subject"] = member.DesigneeId,
+                ["UserNID"] = member.DesigneeId,
+                ["UserRole"] = "memberportal-designee",
+                ["LOB"] = context.Lob
+            };
+
+        return BuildSsoUrl(context, context.Configurations[0].PingFedUrl, attributes);
+    }
+
+    public Task<string?> GetChatSsoAsync(SsoUrlContext context, CancellationToken cancellationToken)
+    {
+        var chat = options.Value.Chat;
+        var member = context.Member;
+        var memberId = member.PrimaryMemberId();
+
+        // Legacy GetChatSSO: MemberIdWithoutSuffix is the id before the trailing "-NN" subscriber
+        // suffix; memberSFX is the suffix's last digit ("0" when there is none or off-exchange).
+        var dash = memberId.LastIndexOf('-');
+        var memberIdWithoutSuffix = dash > 0 ? memberId[..dash] : memberId;
+        var suffix = dash > 0 ? memberId[(dash + 1)..] : string.Empty;
+        var lastDigit = suffix.Length > 0 ? suffix[^1].ToString() : "0";
+
+        var attributes = new Dictionary<string, string> { ["subject"] = memberId };
+        if (member.IsExchange)
+        {
+            attributes["memberId"] = EncryptChatValue(memberIdWithoutSuffix, chat);
+            attributes["memberSFX"] = EncryptChatValue(lastDigit, chat);
+        }
+        else
+        {
+            attributes["memberId"] = EncryptChatValue(memberId, chat);
+            attributes["memberSFX"] = EncryptChatValue("0", chat);
+        }
+
+        attributes["LOB"] = EncryptChatValue(context.Lob, chat);
+
+        // Legacy parity: nonce is 24 characters of base64 randomness concatenated straight onto the
+        // configured URL (the DB value ends in '?' or '&'), followed by the configured state.
+        var nonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24))[..24];
+        var baseUrl = string.Concat(
+            context.Configurations[0].PingFedUrl, "nonce=", nonce, "&state=", chat.State);
+
+        return BuildSsoUrl(context, baseUrl, attributes);
+    }
+
+    public Task<string?> GetSoftheonSsoAsync(SsoUrlContext context, CancellationToken cancellationToken)
+    {
+        var memberId = context.Member.PrimaryMemberId();
+        var trimmedMemberId = memberId.Length > SoftheonMemberIdLength
+            ? memberId[..SoftheonMemberIdLength]
+            : memberId;
+
+        // Legacy GetSoftheonSSO.
+        var attributes = new Dictionary<string, string>
+        {
+            ["subject"] = trimmedMemberId,
+            ["memberID"] = trimmedMemberId,
+            ["idType"] = "IssuerId",
+            ["userRole"] = "Individual",
+            ["sender"] = "AmeriHealthCaritas"
+        };
+
+        return BuildSsoUrl(context, context.Configurations[0].PingFedUrl, attributes);
+    }
 
     public Task<string?> GetCertifiSsoAsync(
         SsoUrlContext context,
         SsoAudience audience,
         IReadOnlyDictionary<string, string> attributes,
-        CancellationToken cancellationToken) =>
-        BuildSsoUrlAsync(context, attributes);
+        CancellationToken cancellationToken)
+    {
+        var suffix = audience == SsoAudience.Member ? CertifiMemberUrlSuffix : CertifiDependentsUrlSuffix;
+        return BuildSsoUrl(context, context.Configurations[0].PingFedUrl + suffix, attributes);
+    }
 
     public Task<string?> GetSdsSsoAsync(
         SsoUrlContext context,
         SsoAudience audience,
         IReadOnlyDictionary<string, string> attributes,
         CancellationToken cancellationToken) =>
-        BuildSsoUrlAsync(context, attributes);
+        // Legacy GetSDSSSO appended an empty suffix for both audiences.
+        BuildSsoUrl(context, context.Configurations[0].PingFedUrl, attributes);
 
-    /// <summary>
-    /// The user-info set the legacy <c>GetHRAJivaSSO</c>/<c>GetPlanOfCareSSO</c> wrote into the token
-    /// for the Jiva (ZeOmega) connections. <c>Source</c> carries the resolved assessment name — the
-    /// handler has already applied the age-based HRA assessment rule to the first configuration row.
-    /// </summary>
-    private static Dictionary<string, string> JivaAttributes(SsoUrlContext context)
+    public Task<string?> GenerateSsoTokenAsync(
+        string agentFileName,
+        IReadOnlyDictionary<string, string> attributes,
+        CancellationToken cancellationToken)
     {
-        var attributes = BaseMemberAttributes(context);
-        attributes["lob"] = context.Lob;
-        attributes["MemberID"] = context.Member.PrimaryMemberId() + JivaMemberIdSuffix;
-        attributes["Source"] = context.Configurations[0].AssessmentName ?? string.Empty;
-        return attributes;
-    }
-
-    private static Dictionary<string, string> BaseMemberAttributes(SsoUrlContext context)
-    {
-        var member = context.Member;
-        var memberId = member.PrimaryMemberId();
-
-        // Insertion order is the payload order; "subject" (the OpenToken subject) must be present.
-        return new Dictionary<string, string>
+        try
         {
-            ["subject"] = memberId,
-            ["UserID"] = memberId,
-            ["FirstName"] = member.FirstName ?? string.Empty,
-            ["LastName"] = member.LastName ?? string.Empty,
-            ["UserRoles"] = "MEMBER"
-        };
+            var agent = PingFederateAgentConfig.Load(ResolveAgentFilePath(agentFileName));
+            return Task.FromResult<string?>(OpenTokenWriter.Write(attributes, agent.SharedSecret, agent.CipherSuite));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to generate an OpenToken with agent file {AgentFile}.", agentFileName);
+            return Task.FromResult<string?>(null);
+        }
     }
 
-    private Task<string?> BuildSsoUrlAsync(SsoUrlContext context, IEnumerable<KeyValuePair<string, string>> userInfo)
+    public Task<IReadOnlyDictionary<string, IReadOnlyList<string>>?> ParseSsoTokenAsync(
+        string agentFileName,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var agent = PingFederateAgentConfig.Load(ResolveAgentFilePath(agentFileName));
+            return Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<string>>?>(
+                OpenTokenReader.Read(token, agent.SharedSecret));
+        }
+        catch (Exception ex)
+        {
+            // The token value itself is never logged: it carries member PII.
+            logger.LogError(ex, "Failed to parse an inbound OpenToken with agent file {AgentFile}.", agentFileName);
+            return Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<string>>?>(null);
+        }
+    }
+
+    private Task<string?> BuildSsoUrl(
+        SsoUrlContext context, string? baseUrl, IEnumerable<KeyValuePair<string, string>> userInfo)
     {
         var configuration = context.Configurations[0];
 
         try
         {
-            if (string.IsNullOrWhiteSpace(configuration.PingFedUrl))
+            if (string.IsNullOrWhiteSpace(baseUrl))
             {
                 logger.LogWarning("SSO {SsoName} for LOB {Lob} has no PingFedUrl configured.", context.SsoName, context.Lob);
                 return Task.FromResult<string?>(null);
@@ -103,8 +228,8 @@ public sealed class OpenTokenPingFederateService(
             var agent = PingFederateAgentConfig.Load(ResolveAgentFilePath(configuration.AgentFileLocationPath));
             var token = OpenTokenWriter.Write(userInfo, agent.SharedSecret, agent.CipherSuite);
 
-            var separator = configuration.PingFedUrl.Contains('?') ? '&' : '?';
-            return Task.FromResult<string?>($"{configuration.PingFedUrl}{separator}{agent.TokenName}={token}");
+            var separator = baseUrl.Contains('?') ? '&' : '?';
+            return Task.FromResult<string?>($"{baseUrl}{separator}{agent.TokenName}={token}");
         }
         catch (Exception ex)
         {
@@ -115,6 +240,29 @@ public sealed class OpenTokenPingFederateService(
                 context.SsoName, context.Lob, configuration.AgentFileLocationPath);
             return Task.FromResult<string?>(null);
         }
+    }
+
+    /// <summary>
+    /// The legacy <c>Utility.encryptStringToBytes_AES_Salesforce</c>: AES-CBC with a configured
+    /// key/IV, base64-encoded. The key material must match what the chat provider decrypts with.
+    /// </summary>
+    private static string EncryptChatValue(string value, ChatSsoOptions chat)
+    {
+        if (string.IsNullOrEmpty(chat.AesKeyBase64) || string.IsNullOrEmpty(chat.AesIvBase64))
+        {
+            throw new InvalidOperationException(
+                "Sso:Chat:AesKeyBase64 and Sso:Chat:AesIvBase64 must be configured for CHATSSO.");
+        }
+
+        using var aes = Aes.Create();
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.PKCS7;
+        aes.Key = Convert.FromBase64String(chat.AesKeyBase64);
+        aes.IV = Convert.FromBase64String(chat.AesIvBase64);
+
+        using var encryptor = aes.CreateEncryptor();
+        var plain = System.Text.Encoding.UTF8.GetBytes(value);
+        return Convert.ToBase64String(encryptor.TransformFinalBlock(plain, 0, plain.Length));
     }
 
     private string ResolveAgentFilePath(string agentFileLocationPath)

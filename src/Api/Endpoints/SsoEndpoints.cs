@@ -19,6 +19,9 @@ public static class SsoEndpoints
     /// <summary>Claim carrying dependent member ids as comma-separated <c>id[:qualifier]</c> entries.</summary>
     private const string DependentMemberIdClaimType = "dependentmemberid";
 
+    /// <summary>Claim marking an exchange (marketplace) member — legacy <c>SSOModel.isExchange</c>.</summary>
+    private const string IsExchangeClaimType = "isexchange";
+
     public static IEndpointRouteBuilder MapSsoEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/sso")
@@ -83,6 +86,7 @@ public static class SsoEndpoints
             user.FindFirstValue(JwtRegisteredClaimNames.GivenName),
             user.FindFirstValue(JwtRegisteredClaimNames.FamilyName),
             dateOfBirth,
-            dependentIds);
+            dependentIds,
+            bool.TryParse(user.FindFirstValue(IsExchangeClaimType), out var isExchange) && isExchange);
     }
 }

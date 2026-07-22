@@ -51,6 +51,24 @@ public sealed class StubPingFederateService(ILogger<StubPingFederateService> log
         return FromConfiguredUrl(context);
     }
 
+    public Task<string?> GenerateSsoTokenAsync(
+        string agentFileName,
+        IReadOnlyDictionary<string, string> attributes,
+        CancellationToken cancellationToken)
+    {
+        logger.LogWarning("PingFederate integration is stubbed; no OpenToken generated for agent file {AgentFile}.", agentFileName);
+        return Task.FromResult<string?>(null);
+    }
+
+    public Task<IReadOnlyDictionary<string, IReadOnlyList<string>>?> ParseSsoTokenAsync(
+        string agentFileName,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        logger.LogWarning("PingFederate integration is stubbed; inbound OpenToken not parsed for agent file {AgentFile}.", agentFileName);
+        return Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<string>>?>(null);
+    }
+
     private Task<string?> FromConfiguredUrl(SsoUrlContext context)
     {
         logger.LogWarning(

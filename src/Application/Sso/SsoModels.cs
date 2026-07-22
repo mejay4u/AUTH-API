@@ -37,7 +37,8 @@ public sealed record SsoMemberContext(
     string? FirstName,
     string? LastName,
     DateOnly? DateOfBirth,
-    IReadOnlyCollection<string> DependentMemberIds)
+    IReadOnlyCollection<string> DependentMemberIds,
+    bool IsExchange = false)
 {
     public const string MemberRole = "Member";
 

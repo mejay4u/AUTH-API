@@ -21,6 +21,26 @@ public sealed class SsoOptions
     public HraAssessmentOptions HraAssessment { get; init; } = new();
 
     public PingFederateOptions PingFederate { get; init; } = new();
+
+    public ChatSsoOptions Chat { get; init; } = new();
+}
+
+/// <summary>
+/// CHATSSO settings. The legacy flow AES-encrypted the member id / suffix / LOB attributes
+/// (<c>Utility.encryptStringToBytes_AES_Salesforce</c>) and appended <c>nonce</c> and <c>state</c>
+/// (legacy <c>ChatState</c> configuration) to the sign-on URL; the key/IV must match the values the
+/// legacy utility used so the receiving side can decrypt.
+/// </summary>
+public sealed class ChatSsoOptions
+{
+    /// <summary>The OAuth state appended to the chat sign-on URL (legacy <c>ChatState</c>).</summary>
+    public string? State { get; init; }
+
+    /// <summary>Base64 AES key for the encrypted chat attributes.</summary>
+    public string? AesKeyBase64 { get; init; }
+
+    /// <summary>Base64 AES IV for the encrypted chat attributes.</summary>
+    public string? AesIvBase64 { get; init; }
 }
 
 /// <summary>

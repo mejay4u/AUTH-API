@@ -27,4 +27,23 @@ public interface IPingFederateService
         SsoAudience audience,
         IReadOnlyDictionary<string, string> attributes,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Generates a bare OpenToken (no URL) with the given agent configuration — the legacy
+    /// <c>GenerateSSOToken</c> (BCBSMI hand-off, which stripped the URL off again after writing).
+    /// </summary>
+    Task<string?> GenerateSsoTokenAsync(
+        string agentFileName,
+        IReadOnlyDictionary<string, string> attributes,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Validates and decodes an inbound OpenToken into its attribute multi-map — the legacy
+    /// <c>ParseSSOTokenAsync</c>. Returns null when the token fails validation. The legacy
+    /// <c>ParseSSOTokenCSR</c> variant is deliberately not ported.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, IReadOnlyList<string>>?> ParseSsoTokenAsync(
+        string agentFileName,
+        string token,
+        CancellationToken cancellationToken);
 }

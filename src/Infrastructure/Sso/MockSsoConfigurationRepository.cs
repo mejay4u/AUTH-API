@@ -29,7 +29,11 @@ public sealed class MockSsoConfigurationRepository : ISsoConfigurationRepository
                 SsoConfigId: index + 1,
                 SsoName: name,
                 Description: $"{name} (mock configuration for LOB {lob})",
-                PingFedUrl: $"https://pingfed.example.local/idp/startSSO.ping?sso={name.ToLowerInvariant()}&lob={lob}",
+                // Legacy parity: the CHATSSO row's URL ends with a separator because the chat flow
+                // concatenates "nonce=..." straight onto it.
+                PingFedUrl: name == SsoNames.Chat
+                    ? $"https://pingfed.example.local/idp/startSSO.ping?sso=chatsso&lob={lob}&"
+                    : $"https://pingfed.example.local/idp/startSSO.ping?sso={name.ToLowerInvariant()}&lob={lob}",
                 PingFedReturnUrl: $"https://portal.example.local/sso/{name.ToLowerInvariant()}/return",
                 AgentFileLocationPath: "mock-agent-config-qa.txt",
                 AssessmentName: name == SsoNames.Hra ? "GeneralAssessment" : null,
