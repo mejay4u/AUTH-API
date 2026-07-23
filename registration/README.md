@@ -9,7 +9,7 @@ registration/
   src/
     Domain/          Result/Error primitives, RegistrationErrors. No dependencies.
     Application/     CQRS use cases (SendOtp, VerifyOtp, CreateAccount), FluentValidation, interfaces, options.
-    Infrastructure/  PBKDF2 hasher, cache-backed OTP service, SMTP/dev email senders, user repository.
+    Infrastructure/  EF Core DbContext (database-first), PBKDF2 hasher, cache-backed OTP service, SMTP/dev email senders.
     Api/             Minimal-API endpoints, ProblemDetails, rate limiting, feature flag, Swagger.
   tests/
     Registration.UnitTests/  xUnit tests (password policy, OTP service, PBKDF2 hasher).
@@ -36,7 +36,7 @@ when disabled every endpoint returns 404.
 dotnet run --project registration/src/Api/Registration.Api.csproj
 ```
 
-In **Development** it uses an **in-memory user store** and a **logging email sender** (the OTP is
+In **Development** it uses the **EF Core InMemory provider** and a **logging email sender** (the OTP is
 written to the console instead of emailed), so the full flow runs with no database or SMTP server.
 Swagger is served at `/swagger`.
 
@@ -46,9 +46,12 @@ Typical flow: `POST /otp/send` → grab the code from the console log → `POST 
 ## Key behaviours
 
 - **Email is the username / User ID.**
+- **Own database, database-first EF Core:** `RegistrationDbContext` maps the `User` entity to the
+  `registration.Users` table whose schema is authored in SQL (`scripts/create-registration-user-table.sql`)
+  — EF maps to it and does **not** own migrations. A **unique index on email/username** is the real
+  duplicate guard.
 - **Best-practice password hashing:** PBKDF2 (HMAC-SHA256, random per-password salt), behind
   `IPasswordHasher` so the scheme (`PasswordHashing:Scheme`) can be swapped (Argon2id/BCrypt) later.
-  It writes a `(hash, salt)` pair to fit the existing user table's two columns.
 - **Server-side validation is the source of truth:** FluentValidation → RFC 7807
   `ValidationProblemDetails` (400) listing exactly what is required.
 - **Duplicate email** → 409 Conflict.
@@ -60,10 +63,10 @@ Typical flow: `POST /otp/send` → grab the code from the console log → `POST 
 
 ## Going to production
 
-1. Set `UserStore:Provider=SqlServer` and `ConnectionStrings:MemberPortalDb` (the existing member
-   portal DB). Confirm the stored-proc/table names in `DapperUserRegistrationRepository` with the DBA
-   — they must target the **same user table the existing login reads**, and the hashing scheme must be
-   one that login can verify.
+1. Create the schema by running [`scripts/create-registration-user-table.sql`](scripts/create-registration-user-table.sql)
+   against the registration database (database-first — EF maps to it, it does not create it). Then set
+   `Database:Provider=SqlServer` and `ConnectionStrings:RegistrationDb`. Because this is registration's
+   **own** database, whatever authenticates these users reads from **this** DB.
 2. Configure the real `Smtp` settings (host/port/TLS/credentials/from) via secrets/Key Vault.
 3. Set real `Cors:AllowedOrigins`, serve over HTTPS, and tune `PasswordHashing:Iterations`.
 

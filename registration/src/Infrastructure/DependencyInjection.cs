@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Registration.Application.Common.Interfaces;
@@ -5,6 +6,7 @@ using Registration.Application.Common.Options;
 using Registration.Infrastructure.Email;
 using Registration.Infrastructure.Otp;
 using Registration.Infrastructure.Persistence;
+using Registration.Infrastructure.Persistence.Repositories;
 using Registration.Infrastructure.Security.PasswordHashing;
 
 namespace Registration.Infrastructure;
@@ -25,7 +27,7 @@ public static class DependencyInjection
         services.AddSingleton<IOtpService, OtpService>();
 
         AddEmailSender(services, isDevelopment);
-        AddUserStore(services, configuration, isDevelopment);
+        AddPersistence(services, configuration, isDevelopment);
 
         return services;
     }
@@ -63,20 +65,30 @@ public static class DependencyInjection
         }
     }
 
-    private static void AddUserStore(IServiceCollection services, IConfiguration configuration, bool isDevelopment)
+    private static void AddPersistence(IServiceCollection services, IConfiguration configuration, bool isDevelopment)
     {
-        // Writes into the EXISTING user table. InMemory mock in Development; Dapper against the real
-        // member portal DB otherwise. No new tables are created in either mode.
-        var provider = configuration.GetValue<string>("UserStore:Provider")
+        // Registration owns its own database (database-first: the schema is authored in SQL, EF maps to
+        // it and does not migrate). SqlServer for the real DB; InMemory in Development so the flow runs
+        // without a database.
+        var provider = configuration.GetValue<string>("Database:Provider")
                        ?? (isDevelopment ? "InMemory" : "SqlServer");
 
-        if (provider.Equals("SqlServer", StringComparison.OrdinalIgnoreCase))
+        services.AddDbContext<RegistrationDbContext>(options =>
         {
-            services.AddScoped<IUserRegistrationRepository, DapperUserRegistrationRepository>();
-        }
-        else
-        {
-            services.AddSingleton<IUserRegistrationRepository, InMemoryUserRegistrationRepository>();
-        }
+            if (provider.Equals("SqlServer", StringComparison.OrdinalIgnoreCase))
+            {
+                var connectionString = configuration.GetConnectionString("RegistrationDb")
+                    ?? throw new InvalidOperationException(
+                        "ConnectionStrings:RegistrationDb is required when Database:Provider=SqlServer.");
+
+                options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure());
+            }
+            else
+            {
+                options.UseInMemoryDatabase("RegistrationMockDb");
+            }
+        });
+
+        services.AddScoped<IUserRegistrationRepository, EfUserRegistrationRepository>();
     }
 }
