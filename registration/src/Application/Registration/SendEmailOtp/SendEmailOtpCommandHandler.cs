@@ -7,6 +7,7 @@ using Registration.Domain.Common;
 namespace Registration.Application.Registration.SendEmailOtp;
 
 public sealed class SendEmailOtpCommandHandler(
+    IUserRegistrationRepository repository,
     IOtpService otpService,
     IEmailSender emailSender,
     ILogger<SendEmailOtpCommandHandler> logger)
@@ -15,6 +16,15 @@ public sealed class SendEmailOtpCommandHandler(
     public async Task<Result> Handle(SendEmailOtpCommand request, CancellationToken cancellationToken)
     {
         var email = EmailNormalizer.Normalize(request.Email);
+
+        // Best practice: don't start the verification flow for an email that already has an account, and
+        // don't reveal whether it exists. Return the SAME generic success either way (enumeration-safe)
+        // and simply skip issuing a code — so we never mail OTPs to already-registered addresses.
+        if (await repository.EmailExistsAsync(email, cancellationToken))
+        {
+            logger.LogInformation("OTP requested for an already-registered email; no code issued.");
+            return Result.Success();
+        }
 
         var issued = await otpService.IssueAsync(email, cancellationToken);
         if (issued.IsFailure)

@@ -57,7 +57,9 @@ Typical flow: `POST /otp/send` → grab the code from the console log → `POST 
   `IPasswordHasher` so the scheme (`PasswordHashing:Scheme`) can be swapped (Argon2id/BCrypt) later.
 - **Server-side validation is the source of truth:** FluentValidation → RFC 7807
   `ValidationProblemDetails` (400) listing exactly what is required.
-- **Duplicate email** → 409 Conflict.
+- **Duplicate email**, checked early and late: at **OTP send** the flow is refused for an already-
+  registered email in an **enumeration-safe** way (same generic response, no code issued), and again at
+  **account creation** → 409 Conflict. A **unique DB index** on email/username is the final guard.
 - **OTP:** 6-digit code, stored only as a SHA-256 hash, with expiry, a wrong-guess attempt cap, a
   60s resend cooldown, and a configurable per-email request cap (default 10). State lives in a
   cache — **no new tables**.
