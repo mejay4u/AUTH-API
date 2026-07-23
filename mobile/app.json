@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Member Portal",
+    "slug": "member-portal-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "memberportal",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#0B1120"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.memberportal.mobile"
+    },
+    "android": {
+      "package": "com.memberportal.mobile"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "extra": {
+      "apiBaseUrl": "http://localhost:5155"
+    }
+  }
+}
