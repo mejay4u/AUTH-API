@@ -14,26 +14,25 @@ import { ApiError } from '../api/http';
 import { useAuth } from '../auth/AuthContext';
 import { Button } from '../components/Button';
 import { Field } from '../components/Field';
-import { config } from '../config';
 import { theme } from '../theme';
 
 export function LoginScreen() {
   const { signIn, baseUrl, setBaseUrl } = useAuth();
 
-  const [username, setUsername] = useState('');
+  const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
-  const [lob, setLob] = useState<string>(config.lobs[0]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSubmit = username.trim().length > 0 && password.length > 0 && !submitting;
+  const canSubmit = userId.trim().length > 0 && password.length > 0 && !submitting;
 
   async function onSubmit() {
     setError(null);
     setSubmitting(true);
     try {
-      await signIn(username.trim(), password, lob);
+      // Runs POST /auth/login then POST /auth/completelogin under the hood.
+      await signIn(userId.trim(), password);
       // On success the navigator swaps to the Home stack automatically.
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.');
@@ -60,13 +59,14 @@ export function LoginScreen() {
           </View>
 
           <Field
-            label="Username"
-            value={username}
-            onChangeText={setUsername}
+            label="User ID"
+            value={userId}
+            onChangeText={setUserId}
             autoCapitalize="none"
             autoCorrect={false}
+            keyboardType="email-address"
             textContentType="username"
-            placeholder="e.g. jdoe"
+            placeholder="you@example.com"
             returnKeyType="next"
           />
 
@@ -81,24 +81,6 @@ export function LoginScreen() {
             returnKeyType="go"
             onSubmitEditing={() => canSubmit && onSubmit()}
           />
-
-          <Text style={styles.label}>Line of business</Text>
-          <View style={styles.lobRow}>
-            {config.lobs.map((code) => {
-              const active = code === lob;
-              return (
-                <Pressable
-                  key={code}
-                  onPress={() => setLob(code)}
-                  style={[styles.chip, active && styles.chipActive]}
-                >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                    {code}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -125,7 +107,7 @@ export function LoginScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 keyboardType="url"
-                placeholder="http://192.168.x.x:5155"
+                placeholder="http://192.168.x.x:38340"
               />
               <Text style={styles.hint}>
                 On a physical device use your computer's LAN IP, not localhost.
@@ -159,28 +141,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
     lineHeight: 21,
   },
-  label: {
-    color: theme.colors.textMuted,
-    fontSize: 13,
-    marginBottom: 6,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-  },
-  lobRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: theme.spacing(2) },
-  chip: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-  },
-  chipActive: {
-    borderColor: theme.colors.primary,
-    backgroundColor: theme.colors.surfaceAlt,
-  },
-  chipText: { color: theme.colors.textMuted, fontWeight: '600', fontSize: 13 },
-  chipTextActive: { color: theme.colors.text },
   error: {
     color: theme.colors.danger,
     marginBottom: theme.spacing(1),

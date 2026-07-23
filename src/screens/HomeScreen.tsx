@@ -1,20 +1,11 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import React, { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { getMe } from '../api/auth';
 import { ApiError } from '../api/http';
 import { getSso } from '../api/sso';
-import type { MeResponse, SsoPortal } from '../api/types';
+import type { SsoPortal } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { Button } from '../components/Button';
 import { PortalCard } from '../components/PortalCard';
@@ -25,44 +16,10 @@ import { theme } from '../theme';
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
 export function HomeScreen({ navigation }: Props) {
-  const { session, signOut, getValidAccessToken } = useAuth();
-
-  const [me, setMe] = useState<MeResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { session, signOut } = useAuth();
   const [launching, setLaunching] = useState<string | null>(null);
 
   const portals = config.ssoPortals;
-
-  const load = useCallback(async () => {
-    if (!session) return;
-    setError(null);
-    try {
-      const token = await getValidAccessToken();
-      setMe(await getMe(session.baseUrl, token));
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        // Session invalid — AuthContext has already cleared it; navigator will redirect.
-        return;
-      }
-      setError(err instanceof ApiError ? err.message : 'Failed to load your profile.');
-    }
-  }, [session, getValidAccessToken]);
-
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      await load();
-      setLoading(false);
-    })();
-  }, [load]);
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  }, [load]);
 
   const onLaunch = useCallback(
     async (portal: SsoPortal) => {
@@ -70,8 +27,7 @@ export function HomeScreen({ navigation }: Props) {
       const key = `${portal.lob}:${portal.ssoName}`;
       setLaunching(key);
       try {
-        const token = await getValidAccessToken();
-        const res = await getSso(session.baseUrl, token, portal);
+        const res = await getSso(session.baseUrl, session.securityToken, portal);
         if (!res.ssoUrl) {
           Alert.alert(
             portal.name,
@@ -81,6 +37,12 @@ export function HomeScreen({ navigation }: Props) {
         }
         navigation.navigate('SsoWebView', { portalName: portal.name, url: res.ssoUrl });
       } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          Alert.alert('Session expired', 'Please sign in again.', [
+            { text: 'OK', onPress: () => void signOut() },
+          ]);
+          return;
+        }
         const message =
           err instanceof ApiError && err.status === 404
             ? 'This portal is not configured for your line of business.'
@@ -92,57 +54,40 @@ export function HomeScreen({ navigation }: Props) {
         setLaunching(null);
       }
     },
-    [session, getValidAccessToken, navigation],
+    [session, navigation, signOut],
   );
 
   const displayName =
-    [me?.firstName, me?.lastName].filter(Boolean).join(' ') ||
-    me?.username ||
-    session?.username ||
+    [session?.firstName, session?.lastName].filter(Boolean).join(' ') ||
+    session?.userName ||
     'Member';
-
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={theme.colors.primary} size="large" />
-      </View>
-    );
-  }
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={theme.colors.textMuted}
-          />
-        }
-      >
+      <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.greeting}>
           <Text style={styles.hello}>Welcome back,</Text>
           <Text style={styles.name}>{displayName}</Text>
-          {me?.email ? <Text style={styles.email}>{me.email}</Text> : null}
+          {session?.email ? <Text style={styles.email}>{session.email}</Text> : null}
         </View>
 
-        {me?.lobs?.length ? (
-          <View style={styles.lobBar}>
-            {me.lobs.map((l) => (
-              <View key={l} style={styles.lobPill}>
-                <Text style={styles.lobPillText}>{l}</Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
+        <View style={styles.metaBar}>
+          {session?.memberId ? (
+            <View style={styles.metaPill}>
+              <Text style={styles.metaPillText}>ID {session.memberId}</Text>
+            </View>
+          ) : null}
+          {session?.role ? (
+            <View style={styles.metaPill}>
+              <Text style={styles.metaPillText}>{session.role}</Text>
+            </View>
+          ) : null}
+        </View>
 
         <Text style={styles.sectionTitle}>Single sign-on</Text>
         <Text style={styles.sectionHint}>
           Tap a portal to sign in — you're logged in there automatically, no second password.
         </Text>
-
-        {error ? <Text style={styles.error}>{error}</Text> : null}
 
         {portals.length === 0 ? (
           <Text style={styles.empty}>No SSO portals are configured.</Text>
@@ -170,14 +115,8 @@ export function HomeScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme.colors.background },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.background,
-  },
   content: { padding: theme.spacing(3) },
-  greeting: { marginBottom: theme.spacing(2) },
+  greeting: { marginBottom: theme.spacing(1.5) },
   hello: { color: theme.colors.textMuted, fontSize: 15 },
   name: {
     color: theme.colors.text,
@@ -187,8 +126,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   email: { color: theme.colors.textMuted, fontSize: 14, marginTop: 2 },
-  lobBar: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: theme.spacing(3) },
-  lobPill: {
+  metaBar: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: theme.spacing(3) },
+  metaPill: {
     paddingVertical: 5,
     paddingHorizontal: 12,
     borderRadius: 999,
@@ -196,7 +135,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
-  lobPillText: { color: theme.colors.text, fontSize: 12, fontWeight: '700' },
+  metaPillText: { color: theme.colors.text, fontSize: 12, fontWeight: '700' },
   sectionTitle: {
     color: theme.colors.text,
     fontSize: 18,
@@ -209,6 +148,5 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing(2),
     lineHeight: 20,
   },
-  error: { color: theme.colors.danger, marginBottom: theme.spacing(1.5), fontSize: 14 },
   empty: { color: theme.colors.textMuted, fontSize: 14, marginBottom: theme.spacing(2) },
 });
