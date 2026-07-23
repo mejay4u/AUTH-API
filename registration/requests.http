@@ -25,12 +25,17 @@ Content-Type: application/json
   "code": "123456"
 }
 
-### 3) Create the account (email is the username)
+### 3) Create the account (email is the username; includes the registration screen's personal info)
 POST {{host}}/api/v1/registration/account
 Content-Type: application/json
 
 {
+  "firstName": "John",
+  "lastName": "Doe",
+  "dateOfBirth": "1990-05-15",
+  "zipCode": "12345",
   "email": "john.doe@gmail.com",
+  "contactNumber": "123-456-7890",
   "password": "Str0ng!Pass",
   "confirmPassword": "Str0ng!Pass"
 }

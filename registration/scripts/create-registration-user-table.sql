@@ -15,6 +15,11 @@ BEGIN
         Username      NVARCHAR(256)    NOT NULL,
         PasswordHash  NVARCHAR(512)    NOT NULL,
         PasswordSalt  NVARCHAR(256)    NOT NULL,
+        FirstName     NVARCHAR(100)    NOT NULL,
+        LastName      NVARCHAR(100)    NOT NULL,
+        DateOfBirth   DATE             NOT NULL,
+        ZipCode       NVARCHAR(10)     NOT NULL,
+        ContactNumber NVARCHAR(20)     NULL,
         IsActive      BIT              NOT NULL CONSTRAINT DF_registration_Users_IsActive  DEFAULT (1),
         CreatedUtc    DATETIME2(3)     NOT NULL CONSTRAINT DF_registration_Users_CreatedUtc DEFAULT (SYSUTCDATETIME())
     );

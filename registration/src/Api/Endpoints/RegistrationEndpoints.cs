@@ -68,7 +68,15 @@ public static class RegistrationEndpoints
         CreateAccountRequest request, ISender sender, CancellationToken cancellationToken)
     {
         var result = await sender.Send(
-            new CreateAccountCommand(request.Email, request.Password, request.ConfirmPassword),
+            new CreateAccountCommand(
+                request.FirstName,
+                request.LastName,
+                request.DateOfBirth,
+                request.ZipCode,
+                request.Email,
+                request.ContactNumber,
+                request.Password,
+                request.ConfirmPassword),
             cancellationToken);
 
         return result.ToHttpResult(r =>

@@ -22,6 +22,14 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.Username).HasMaxLength(256).IsRequired();
         builder.Property(u => u.PasswordHash).HasMaxLength(512).IsRequired();
         builder.Property(u => u.PasswordSalt).HasMaxLength(256).IsRequired();
+
+        // Personal information (registration screen).
+        builder.Property(u => u.FirstName).HasMaxLength(100).IsRequired();
+        builder.Property(u => u.LastName).HasMaxLength(100).IsRequired();
+        builder.Property(u => u.DateOfBirth).IsRequired();               // maps to SQL 'date'
+        builder.Property(u => u.ZipCode).HasMaxLength(10).IsRequired();
+        builder.Property(u => u.ContactNumber).HasMaxLength(20);         // nullable (optional)
+
         builder.Property(u => u.IsActive).IsRequired();
         builder.Property(u => u.CreatedUtc).IsRequired();
 

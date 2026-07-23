@@ -20,7 +20,16 @@ public sealed class EfUserRegistrationRepositoryTests
         var repository = new EfUserRegistrationRepository(db, TimeProvider.System);
 
         var id = await repository.CreateUserAsync(
-            new NewUserRegistration("john.doe@gmail.com", "john.doe@gmail.com", "hash", "salt"),
+            new NewUserRegistration(
+                "john.doe@gmail.com",
+                "john.doe@gmail.com",
+                "hash",
+                "salt",
+                "John",
+                "Doe",
+                new DateOnly(1990, 5, 15),
+                "12345",
+                "123-456-7890"),
             CancellationToken.None);
 
         Assert.NotEqual(Guid.Empty, id);

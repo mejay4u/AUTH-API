@@ -6,8 +6,8 @@ namespace Registration.Application.Registration.CreateAccount;
 
 /// <summary>
 /// Server-side, authoritative validation for account creation. Reads the configurable
-/// <see cref="PasswordPolicyOptions"/> so the rules (length bounds and each character-class
-/// requirement) change via config, never code. Messages state exactly what is required.
+/// <see cref="PasswordPolicyOptions"/> so the password rules change via config, never code. Every field
+/// from the registration screen is validated here; messages state exactly what is required.
 /// </summary>
 public sealed class CreateAccountCommandValidator : AbstractValidator<CreateAccountCommand>
 {
@@ -15,11 +15,34 @@ public sealed class CreateAccountCommandValidator : AbstractValidator<CreateAcco
     {
         var policy = options.Value;
 
+        // --- Personal information ---
+        RuleFor(x => x.FirstName)
+            .NotEmpty().WithMessage("First name is required.")
+            .MaximumLength(100);
+
+        RuleFor(x => x.LastName)
+            .NotEmpty().WithMessage("Last name is required.")
+            .MaximumLength(100);
+
+        RuleFor(x => x.DateOfBirth)
+            .Must(BeAValidDateOfBirth)
+            .WithMessage("Enter a valid date of birth (a real date in the past).");
+
+        RuleFor(x => x.ZipCode)
+            .NotEmpty().WithMessage("ZIP code is required.")
+            .Matches(@"^\d{5}(-\d{4})?$").WithMessage("Enter a valid ZIP code (12345 or 12345-6789).");
+
         RuleFor(x => x.Email)
             .NotEmpty().WithMessage("Email address is required.")
             .EmailAddress().WithMessage("Enter a valid email address.")
             .MaximumLength(256);
 
+        // Contact number is optional; validate only when supplied.
+        When(x => !string.IsNullOrWhiteSpace(x.ContactNumber), () =>
+            RuleFor(x => x.ContactNumber)
+                .Matches(@"^[0-9+()\-\s]{7,20}$").WithMessage("Enter a valid contact number."));
+
+        // --- Password ---
         RuleFor(x => x.Password)
             .NotEmpty().WithMessage("Password is required.")
             .MinimumLength(policy.MinLength)
@@ -53,4 +76,9 @@ public sealed class CreateAccountCommandValidator : AbstractValidator<CreateAcco
             .Equal(x => x.Password)
             .WithMessage("Passwords do not match.");
     }
+
+    private static bool BeAValidDateOfBirth(DateOnly dateOfBirth) =>
+        dateOfBirth != default
+        && dateOfBirth.Year >= 1900
+        && dateOfBirth < DateOnly.FromDateTime(DateTime.UtcNow);
 }
