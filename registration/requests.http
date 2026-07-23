@@ -1,0 +1,39 @@
+@host = https://localhost:7202
+
+### 1) Send the email OTP (in Development the code is logged to the console)
+POST {{host}}/api/v1/registration/otp/send
+Content-Type: application/json
+
+{
+  "email": "john.doe@gmail.com"
+}
+
+### 1b) Resend the OTP (subject to the 60s cooldown + per-email cap)
+POST {{host}}/api/v1/registration/otp/resend
+Content-Type: application/json
+
+{
+  "email": "john.doe@gmail.com"
+}
+
+### 2) Verify the OTP (use the code from the console log)
+POST {{host}}/api/v1/registration/otp/verify
+Content-Type: application/json
+
+{
+  "email": "john.doe@gmail.com",
+  "code": "123456"
+}
+
+### 3) Create the account (email is the username)
+POST {{host}}/api/v1/registration/account
+Content-Type: application/json
+
+{
+  "email": "john.doe@gmail.com",
+  "password": "Str0ng!Pass",
+  "confirmPassword": "Str0ng!Pass"
+}
+
+### Health
+GET {{host}}/health

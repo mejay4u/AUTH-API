@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Target framework, nullable, implicit usings come from the repo-root Directory.Build.props.
+       This project has NO dependencies (Clean Architecture core). -->
+
+</Project>

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Application\Registration.Application.csproj" />
+    <ProjectReference Include="..\Infrastructure\Registration.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.FeatureManagement.AspNetCore" />
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Swashbuckle.AspNetCore" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- TFM/Nullable/ImplicitUsings centralized in Directory.Build.props.
+         RollForward lets a net8.0 build run on a newer installed shared runtime. -->
+    <RollForward>Major</RollForward>
+    <UserSecretsId>registration-api-6f2b1a3c-9d4e-4b8a-portal</UserSecretsId>
+  </PropertyGroup>
+
+</Project>
