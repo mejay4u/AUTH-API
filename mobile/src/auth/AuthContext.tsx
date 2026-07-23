@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 
 import { signInFlow } from '../api/auth';
+import { deepFindFirstString } from '../api/extract';
 import { ApiError } from '../api/http';
 import type { CompleteLoginResponse } from '../api/types';
 import { config } from '../config';
@@ -31,20 +32,21 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
-function toStr(v: unknown): string | null {
-  return typeof v === 'string' && v.length > 0 ? v : null;
-}
-
-function sessionFrom(baseUrl: string, r: CompleteLoginResponse): StoredSession {
+function sessionFrom(
+  baseUrl: string,
+  securityToken: string,
+  raw: CompleteLoginResponse,
+): StoredSession {
+  // Member fields may be nested in the response wrapper, so search by key.
   return {
     baseUrl,
-    securityToken: r.securityToken as string,
-    memberId: toStr(r.memberId) ?? '',
-    userName: toStr(r.userName) ?? '',
-    firstName: toStr(r.firstName),
-    lastName: toStr(r.lastName),
-    email: toStr(r.emailId),
-    role: toStr(r.memberRole),
+    securityToken,
+    memberId: deepFindFirstString(raw, ['memberId']) ?? '',
+    userName: deepFindFirstString(raw, ['userName']) ?? '',
+    firstName: deepFindFirstString(raw, ['firstName']),
+    lastName: deepFindFirstString(raw, ['lastName']),
+    email: deepFindFirstString(raw, ['emailId', 'email']),
+    role: deepFindFirstString(raw, ['memberRole', 'role']),
   };
 }
 
@@ -72,8 +74,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = useCallback(
     async (userId: string, password: string) => {
-      const completed = await signInFlow(baseUrl, userId, password);
-      await persist(sessionFrom(baseUrl, completed));
+      const { securityToken, raw } = await signInFlow(baseUrl, userId, password);
+      await persist(sessionFrom(baseUrl, securityToken, raw));
     },
     [baseUrl, persist],
   );

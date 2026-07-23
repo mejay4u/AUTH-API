@@ -1,10 +1,17 @@
 import { config } from '../config';
+import { deepFindString, topLevelKeys } from './extract';
 import { ApiError, request } from './http';
 import type {
   CompleteLoginResponse,
   InitiateLoginRequest,
   MemberEnvelope,
 } from './types';
+
+/** Result of a completed sign-in: the JWT plus the raw completelogin response. */
+export interface SignInResult {
+  securityToken: string;
+  raw: CompleteLoginResponse;
+}
 
 /**
  * Step 1 — validate the member's credentials. Returns the member envelope (TransId, member
@@ -63,11 +70,18 @@ export async function signInFlow(
   baseUrl: string,
   userId: string,
   password: string,
-): Promise<CompleteLoginResponse> {
+): Promise<SignInResult> {
   const envelope = await initiateLogin(baseUrl, userId, password);
   const completed = await completeLogin(baseUrl, envelope);
-  if (!completed.securityToken) {
-    throw new ApiError('Login completed but no security token was returned.', 502);
+
+  // The token may be top-level or nested in the response wrapper — find it wherever it is.
+  const securityToken = deepFindString(completed, 'securityToken');
+  if (!securityToken) {
+    const keys = topLevelKeys(completed).join(', ') || '(no fields)';
+    throw new ApiError(
+      `Login completed but no security token was found. Response fields: ${keys}`,
+      502,
+    );
   }
-  return completed;
+  return { securityToken, raw: completed };
 }
