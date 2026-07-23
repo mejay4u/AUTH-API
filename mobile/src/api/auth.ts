@@ -1,5 +1,5 @@
 import { config } from '../config';
-import { deepFindString, topLevelKeys } from './extract';
+import { deepFindFirstString, topLevelKeys } from './extract';
 import { ApiError, request } from './http';
 import type {
   CompleteLoginResponse,
@@ -74,8 +74,13 @@ export async function signInFlow(
   const envelope = await initiateLogin(baseUrl, userId, password);
   const completed = await completeLogin(baseUrl, envelope);
 
-  // The token may be top-level or nested in the response wrapper — find it wherever it is.
-  const securityToken = deepFindString(completed, 'securityToken');
+  // The JWT is returned as `accessToken` (older builds called it `securityToken`); it may be
+  // top-level or nested in the response wrapper — find it wherever it is.
+  const securityToken = deepFindFirstString(completed, [
+    'accessToken',
+    'securityToken',
+    'token',
+  ]);
   if (!securityToken) {
     const keys = topLevelKeys(completed).join(', ') || '(no fields)';
     throw new ApiError(

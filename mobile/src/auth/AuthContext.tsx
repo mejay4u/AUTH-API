@@ -45,8 +45,8 @@ function sessionFrom(
     userName: deepFindFirstString(raw, ['userName']) ?? '',
     firstName: deepFindFirstString(raw, ['firstName']),
     lastName: deepFindFirstString(raw, ['lastName']),
-    email: deepFindFirstString(raw, ['emailId', 'email']),
-    role: deepFindFirstString(raw, ['memberRole', 'role']),
+    email: deepFindFirstString(raw, ['memberEmailId', 'emailId', 'email']),
+    role: deepFindFirstString(raw, ['userRole', 'memberRole', 'role']),
   };
 }
 
