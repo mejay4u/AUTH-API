@@ -16,6 +16,9 @@ import { Button } from '../components/Button';
 import { Field } from '../components/Field';
 import { theme } from '../theme';
 
+/** Bump this on every change so the running bundle is verifiable on-screen. */
+const BUILD = 'sso-dbg-2';
+
 export function LoginScreen() {
   const { signIn, baseUrl, setBaseUrl } = useAuth();
 
@@ -56,6 +59,7 @@ export function LoginScreen() {
             <Text style={styles.subtitle}>
               Sign in to access your benefits and single sign-on portals.
             </Text>
+            <Text style={styles.build}>build: {BUILD}</Text>
           </View>
 
           <Field
@@ -140,6 +144,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginTop: 6,
     lineHeight: 21,
+  },
+  build: {
+    color: theme.colors.success,
+    fontSize: 12,
+    marginTop: 8,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   error: {
     color: theme.colors.danger,
