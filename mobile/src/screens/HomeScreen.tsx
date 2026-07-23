@@ -13,11 +13,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getMe } from '../api/auth';
 import { ApiError } from '../api/http';
-import { getPortals, initiateSso } from '../api/sso';
-import type { MeResponse, Portal } from '../api/types';
+import { getSso } from '../api/sso';
+import type { MeResponse, SsoPortal } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { Button } from '../components/Button';
 import { PortalCard } from '../components/PortalCard';
+import { config } from '../config';
 import type { RootStackParamList } from '../navigation/types';
 import { theme } from '../theme';
 
@@ -27,29 +28,25 @@ export function HomeScreen({ navigation }: Props) {
   const { session, signOut, getValidAccessToken } = useAuth();
 
   const [me, setMe] = useState<MeResponse | null>(null);
-  const [portals, setPortals] = useState<Portal[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [launching, setLaunching] = useState<string | null>(null);
+
+  const portals = config.ssoPortals;
 
   const load = useCallback(async () => {
     if (!session) return;
     setError(null);
     try {
       const token = await getValidAccessToken();
-      const [meRes, portalRes] = await Promise.all([
-        getMe(session.baseUrl, token),
-        getPortals(session.baseUrl, token),
-      ]);
-      setMe(meRes);
-      setPortals(portalRes);
+      setMe(await getMe(session.baseUrl, token));
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         // Session invalid — AuthContext has already cleared it; navigator will redirect.
         return;
       }
-      setError(err instanceof ApiError ? err.message : 'Failed to load your portals.');
+      setError(err instanceof ApiError ? err.message : 'Failed to load your profile.');
     }
   }, [session, getValidAccessToken]);
 
@@ -68,23 +65,28 @@ export function HomeScreen({ navigation }: Props) {
   }, [load]);
 
   const onLaunch = useCallback(
-    async (portal: Portal) => {
+    async (portal: SsoPortal) => {
       if (!session) return;
-      setLaunching(portal.code);
+      const key = `${portal.lob}:${portal.ssoName}`;
+      setLaunching(key);
       try {
         const token = await getValidAccessToken();
-        const launch = await initiateSso(session.baseUrl, token, portal.code);
-        if (!launch?.url) {
-          throw new ApiError('The SSO service did not return a launch URL.', 502);
+        const res = await getSso(session.baseUrl, token, portal);
+        if (!res.ssoUrl) {
+          Alert.alert(
+            portal.name,
+            'Single sign-on is not available for this portal on your account right now.',
+          );
+          return;
         }
-        navigation.navigate('SsoWebView', {
-          portalCode: portal.code,
-          portalName: portal.name,
-          launch,
-        });
+        navigation.navigate('SsoWebView', { portalName: portal.name, url: res.ssoUrl });
       } catch (err) {
         const message =
-          err instanceof ApiError ? err.message : 'Could not start single sign-on.';
+          err instanceof ApiError && err.status === 404
+            ? 'This portal is not configured for your line of business.'
+            : err instanceof ApiError
+              ? err.message
+              : 'Could not start single sign-on.';
         Alert.alert(`${portal.name} sign-on`, message);
       } finally {
         setLaunching(null);
@@ -142,15 +144,15 @@ export function HomeScreen({ navigation }: Props) {
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        {portals.length === 0 && !error ? (
-          <Text style={styles.empty}>No SSO portals are available for your account.</Text>
+        {portals.length === 0 ? (
+          <Text style={styles.empty}>No SSO portals are configured.</Text>
         ) : (
           portals.map((p) => (
             <PortalCard
-              key={p.code}
+              key={`${p.lob}:${p.ssoName}`}
               portal={p}
               onPress={onLaunch}
-              loading={launching === p.code}
+              loading={launching === `${p.lob}:${p.ssoName}`}
             />
           ))
         )}

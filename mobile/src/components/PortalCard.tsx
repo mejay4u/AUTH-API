@@ -1,12 +1,12 @@
 import React from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import type { Portal } from '../api/types';
+import type { SsoPortal } from '../api/types';
 import { theme } from '../theme';
 
 interface Props {
-  portal: Portal;
-  onPress: (portal: Portal) => void;
+  portal: SsoPortal;
+  onPress: (portal: SsoPortal) => void;
   loading?: boolean;
 }
 
@@ -19,7 +19,7 @@ export function PortalCard({ portal, onPress, loading = false }: Props) {
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
       <View style={[styles.badge, { backgroundColor: accent }]}>
-        <Text style={styles.badgeText}>{portal.code.slice(0, 3).toUpperCase()}</Text>
+        <Text style={styles.badgeText}>{portal.ssoName.slice(0, 3).toUpperCase()}</Text>
       </View>
       <View style={styles.body}>
         <Text style={styles.name}>{portal.name}</Text>

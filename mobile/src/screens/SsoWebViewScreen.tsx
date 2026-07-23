@@ -1,52 +1,23 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import React, { useLayoutEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView, type WebViewNavigation } from 'react-native-webview';
 
-import { completeLogon } from '../api/sso';
-import { useAuth } from '../auth/AuthContext';
 import { config } from '../config';
 import type { RootStackParamList } from '../navigation/types';
 import { theme } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SsoWebView'>;
 
-/** Build an auto-submitting HTML form for SAML/OIDC POST binding. */
-function buildPostHtml(url: string, fields: Record<string, string>): string {
-  const inputs = Object.entries(fields)
-    .map(
-      ([name, value]) =>
-        `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}" />`,
-    )
-    .join('');
-  return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1" /></head>
-<body style="background:${theme.colors.background};margin:0;">
-<form id="sso" method="post" action="${escapeHtml(url)}">${inputs}</form>
-<script>document.getElementById('sso').submit();</script>
-</body></html>`;
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
+/**
+ * Opens the complete federated sign-on URL returned by GET /api/v1/sso. The URL already
+ * carries the OpenToken hand-off, so the portal (e.g. HRA) logs the member in on load —
+ * this screen just hosts the resulting web session.
+ */
 export function SsoWebViewScreen({ route, navigation }: Props) {
-  const { portalCode, portalName, launch } = route.params;
-  const { session, getValidAccessToken } = useAuth();
-
+  const { portalName, url } = route.params;
   const [loading, setLoading] = useState(true);
-  const completedRef = useRef(false);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -59,36 +30,16 @@ export function SsoWebViewScreen({ route, navigation }: Props) {
     });
   }, [navigation, portalName]);
 
-  const source = useMemo(() => {
-    if (launch.method === 'POST' && launch.formFields) {
-      return { html: buildPostHtml(launch.url, launch.formFields), baseUrl: launch.url };
-    }
-    return { uri: launch.url };
-  }, [launch]);
-
-  async function finishLogon() {
-    if (completedRef.current || !session) return;
-    completedRef.current = true;
-    try {
-      const token = await getValidAccessToken();
-      await completeLogon(session.baseUrl, token, portalCode);
-    } catch {
-      // Best-effort: the portal session is already established in the WebView.
-    }
-  }
-
   function onNavChange(navState: WebViewNavigation) {
-    const url = navState.url ?? '';
-    const matched = config.ssoSuccessUrlPrefixes.some((p) => p && url.startsWith(p));
-    if (matched) {
-      finishLogon().finally(() => navigation.goBack());
-    }
+    const current = navState.url ?? '';
+    const matched = config.ssoSuccessUrlPrefixes.some((p) => p && current.startsWith(p));
+    if (matched) navigation.goBack();
   }
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       <WebView
-        source={source}
+        source={{ uri: url }}
         onNavigationStateChange={onNavChange}
         onLoadStart={() => setLoading(true)}
         onLoadEnd={() => setLoading(false)}
