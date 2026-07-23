@@ -7,9 +7,9 @@ import React, {
   useState,
 } from 'react';
 
-import { login as apiLogin, refresh as apiRefresh } from '../api/auth';
+import { signInFlow } from '../api/auth';
 import { ApiError } from '../api/http';
-import type { AuthResponse } from '../api/types';
+import type { CompleteLoginResponse } from '../api/types';
 import { config } from '../config';
 import {
   StoredSession,
@@ -19,37 +19,33 @@ import {
 } from './storage';
 
 interface AuthState {
-  /** Null while restoring the persisted session on startup. */
+  /** True while restoring the persisted session on startup. */
   loading: boolean;
   session: StoredSession | null;
   baseUrl: string;
   setBaseUrl: (url: string) => void;
-  signIn: (username: string, password: string, lob: string) => Promise<void>;
+  /** Runs login -> completelogin and persists the resulting security token. */
+  signIn: (userId: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  /** Returns a valid access token, refreshing first if it is expired/near expiry. */
-  getValidAccessToken: () => Promise<string>;
 }
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
-function sessionFromResponse(baseUrl: string, r: AuthResponse): StoredSession {
-  return {
-    baseUrl,
-    memberId: r.memberId,
-    username: r.username,
-    accessToken: r.accessToken,
-    accessTokenExpiresUtc: r.accessTokenExpiresUtc,
-    refreshToken: r.refreshToken,
-    refreshTokenExpiresUtc: r.refreshTokenExpiresUtc,
-    lobs: r.lobs,
-    planIds: r.planIds,
-  };
+function toStr(v: unknown): string | null {
+  return typeof v === 'string' && v.length > 0 ? v : null;
 }
 
-function isExpiringSoon(iso: string, skewSeconds = 30): boolean {
-  const expiry = Date.parse(iso);
-  if (Number.isNaN(expiry)) return true;
-  return expiry - Date.now() <= skewSeconds * 1000;
+function sessionFrom(baseUrl: string, r: CompleteLoginResponse): StoredSession {
+  return {
+    baseUrl,
+    securityToken: r.securityToken as string,
+    memberId: toStr(r.memberId) ?? '',
+    userName: toStr(r.userName) ?? '',
+    firstName: toStr(r.firstName),
+    lastName: toStr(r.lastName),
+    email: toStr(r.emailId),
+    role: toStr(r.memberRole),
+  };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -75,9 +71,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = useCallback(
-    async (username: string, password: string, lob: string) => {
-      const res = await apiLogin(baseUrl, username, password, lob);
-      await persist(sessionFromResponse(baseUrl, res));
+    async (userId: string, password: string) => {
+      const completed = await signInFlow(baseUrl, userId, password);
+      await persist(sessionFrom(baseUrl, completed));
     },
     [baseUrl, persist],
   );
@@ -86,37 +82,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await persist(null);
   }, [persist]);
 
-  const getValidAccessToken = useCallback(async (): Promise<string> => {
-    if (!session) throw new ApiError('Not signed in.', 401);
-    if (!isExpiringSoon(session.accessTokenExpiresUtc)) {
-      return session.accessToken;
-    }
-    // Access token expired/expiring — rotate via the refresh token.
-    try {
-      const res = await apiRefresh(session.baseUrl, session.refreshToken);
-      const next = sessionFromResponse(session.baseUrl, res);
-      await persist(next);
-      return next.accessToken;
-    } catch (err) {
-      // Refresh failed (expired/reused) — force a fresh login.
-      await persist(null);
-      throw err instanceof ApiError
-        ? err
-        : new ApiError('Your session has expired. Please sign in again.', 401);
-    }
-  }, [session, persist]);
-
   const value = useMemo<AuthState>(
-    () => ({
-      loading,
-      session,
-      baseUrl,
-      setBaseUrl,
-      signIn,
-      signOut,
-      getValidAccessToken,
-    }),
-    [loading, session, baseUrl, signIn, signOut, getValidAccessToken],
+    () => ({ loading, session, baseUrl, setBaseUrl, signIn, signOut }),
+    [loading, session, baseUrl, signIn, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -127,3 +95,5 @@ export function useAuth(): AuthState {
   if (!ctx) throw new Error('useAuth must be used inside <AuthProvider>.');
   return ctx;
 }
+
+export { ApiError };

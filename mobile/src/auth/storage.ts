@@ -2,23 +2,21 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 /**
- * Persisted session. Tokens are kept in the device keychain/keystore via
- * expo-secure-store on native. On web (no SecureStore) we fall back to localStorage,
- * which is fine for local development in a browser.
+ * Persisted session. The JWT `securityToken` is kept in the device keychain/keystore via
+ * expo-secure-store on native (localStorage on web for local development).
  */
 export interface StoredSession {
   baseUrl: string;
+  securityToken: string;
   memberId: string;
-  username: string;
-  accessToken: string;
-  accessTokenExpiresUtc: string;
-  refreshToken: string;
-  refreshTokenExpiresUtc: string;
-  lobs: string[];
-  planIds: number[];
+  userName: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  role: string | null;
 }
 
-const KEY = 'member_portal_session_v1';
+const KEY = 'member_portal_session_v2';
 
 const webAvailable = Platform.OS === 'web' && typeof localStorage !== 'undefined';
 

@@ -1,61 +1,97 @@
-/** Shapes exchanged with the Auth API. */
+/** Shapes exchanged with the member portal auth API. */
 
-/** Response from POST /api/v1/auth/login and /refresh (AuthResponse in the .NET API). */
-export interface AuthResponse {
-  memberId: string;
-  username: string;
-  tokenType: string;
-  accessToken: string;
-  accessTokenExpiresUtc: string;
-  refreshToken: string;
-  refreshTokenExpiresUtc: string;
-  lobs: string[];
-  planIds: number[];
-}
-
-/** Response from GET /api/v1/members/me. */
-export interface MeResponse {
-  memberId: string | null;
-  username: string | null;
-  email: string | null;
-  firstName: string | null;
-  lastName: string | null;
-  lobs: string[];
-  planIds: number[];
+/**
+ * Request body for step 1, `POST /api/v1/auth/login`. Field names mirror the working
+ * Postman request. `TransId` and `SessionKey` are sent empty — the server populates them.
+ */
+export interface InitiateLoginRequest {
+  TransId: string;
+  UserId: string;
+  AppId: string;
+  Password: string;
+  Entity: number;
+  Lang: string;
+  Version: string;
+  PlanId: string;
+  SessionKey: string;
 }
 
 /**
- * A single-sign-on target shown to the member after login. This is app-side catalog
- * config (the Auth API has no "list SSOs" endpoint): `ssoName` + `lob` are what get sent
- * to `GET /api/v1/sso`; the rest is presentation.
+ * The member envelope. Returned by `/auth/login` and posted back to `/auth/completelogin`
+ * (ASP.NET model binding is case-insensitive, so the camelCase login response binds fine as
+ * the completelogin body). Typed loosely with the known fields plus a passthrough index so
+ * the whole envelope can be forwarded without dropping anything the server added.
+ */
+export interface MemberEnvelope {
+  transId?: string | null;
+  appId?: string | null;
+  planId?: string | null;
+  entity?: number | null;
+  lang?: string | null;
+  version?: string | null;
+  memberId?: string | null;
+  medicaidId?: string | null;
+  altId?: string | null;
+  familyLinkId?: string | null;
+  eligibilityStatus?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  dateOfBirth?: string | null;
+  userName?: string | null;
+  emailId?: string | null;
+  phoneNumbersList?: string[] | null;
+  status?: string | null;
+  messageStatus?: string | null;
+  code?: string | null;
+  errors?: unknown[] | null;
+  isTestUser?: boolean;
+  isTwoFactorAuth?: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * Response from step 2, `POST /api/v1/auth/completelogin`. Carries the JWT `securityToken`
+ * used as the Bearer token for `GET /api/v1/sso`, plus display fields for the home screen.
+ */
+export interface CompleteLoginResponse extends MemberEnvelope {
+  securityToken?: string | null;
+  isLoggedInMember?: boolean;
+  isInternalUser?: boolean;
+  isTermedOrDelinquentMember?: boolean;
+  mailType?: string | null;
+  memberRole?: string | null;
+  gender?: string | null;
+  languagePreference?: string | null;
+  securityQuestion?: string | null;
+}
+
+/**
+ * An SSO target shown after login. App-side catalog config (no "list SSOs" endpoint):
+ * `ssoName` + `lob` (+ optional `planCode`) are sent to `GET /api/v1/sso`.
  */
 export interface SsoPortal {
-  /** SSO name understood by the API, e.g. "HRA", "CHATSSO", "CERTIFISSO". */
   ssoName: string;
-  /** Line-of-business code the SSO config is keyed by, e.g. "2100". */
   lob: string;
-  /** Optional plan code, when the SSO config is plan-specific. */
   planCode?: string;
   name: string;
   description?: string;
   accent?: string;
 }
 
-/** One SSO configuration row (SsoConfigItem in the .NET API). */
+/** One SSO configuration row (the `data[]` items in the SSO response). */
 export interface SsoConfigItem {
   ssoName: string;
   description: string | null;
   pingFedUrl: string | null;
   pingFedReturnUrl: string | null;
   assessmentName: string | null;
-  level: string | null;
-  argusCustomerId: string | null;
+  keyPath?: string | null;
 }
 
 /**
- * Response from `GET /api/v1/sso` (SsoResponse in the .NET API). `ssoUrl` is the complete
- * federated sign-on URL to open in a WebView. It can be null for a skipped LOB or an SSO
- * name with no URL provider, in which case only configuration is returned.
+ * Response from `GET /api/v1/sso`. `ssoUrl` is the complete PingFederate sign-on URL
+ * (`startSSO.ping?...&opentoken=...`) to open in a WebView. It can be null for a skipped LOB
+ * or an SSO name with no URL provider.
  */
 export interface SsoResponse {
   memberId: string;
