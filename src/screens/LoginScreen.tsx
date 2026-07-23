@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SignInError } from '../api/auth';
 import { ApiError } from '../api/http';
 import { useAuth } from '../auth/AuthContext';
 import { Button } from '../components/Button';
@@ -17,7 +18,7 @@ import { Field } from '../components/Field';
 import { theme } from '../theme';
 
 /** Bump this on every change so the running bundle is verifiable on-screen. */
-const BUILD = 'sso-dbg-2';
+const BUILD = 'sso-dbg-3';
 
 export function LoginScreen() {
   const { signIn, baseUrl, setBaseUrl } = useAuth();
@@ -27,11 +28,13 @@ export function LoginScreen() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [debug, setDebug] = useState<string | null>(null);
 
   const canSubmit = userId.trim().length > 0 && password.length > 0 && !submitting;
 
   async function onSubmit() {
     setError(null);
+    setDebug(null);
     setSubmitting(true);
     try {
       // Runs POST /auth/login then POST /auth/completelogin under the hood.
@@ -39,6 +42,7 @@ export function LoginScreen() {
       // On success the navigator swaps to the Home stack automatically.
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.');
+      setDebug(err instanceof SignInError ? err.debug : null);
     } finally {
       setSubmitting(false);
     }
@@ -87,6 +91,14 @@ export function LoginScreen() {
           />
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
+
+          {debug ? (
+            <ScrollView style={styles.debugBox} nestedScrollEnabled>
+              <Text selectable style={styles.debugText}>
+                {debug}
+              </Text>
+            </ScrollView>
+          ) : null}
 
           <Button
             title="Sign in"
@@ -156,6 +168,20 @@ const styles = StyleSheet.create({
     color: theme.colors.danger,
     marginBottom: theme.spacing(1),
     fontSize: 14,
+  },
+  debugBox: {
+    maxHeight: 240,
+    backgroundColor: '#00000055',
+    borderColor: theme.colors.border,
+    borderWidth: 1,
+    borderRadius: theme.radius.sm,
+    padding: 10,
+    marginBottom: theme.spacing(1.5),
+  },
+  debugText: {
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   advancedToggle: { alignSelf: 'center', marginTop: theme.spacing(3), padding: 8 },
   advancedToggleText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '600' },

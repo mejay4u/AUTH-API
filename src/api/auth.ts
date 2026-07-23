@@ -19,6 +19,27 @@ export interface SignInResult {
   raw: CompleteLoginResponse;
 }
 
+/** Thrown when the flow finishes but no token is found — carries raw responses for on-screen debug. */
+export class SignInError extends ApiError {
+  debug: string;
+  constructor(message: string, debug: string) {
+    super(message, 502);
+    this.name = 'SignInError';
+    this.debug = debug;
+  }
+}
+
+function dump(label: string, value: unknown): string {
+  let json: string;
+  try {
+    json = JSON.stringify(value, null, 1);
+  } catch {
+    json = String(value);
+  }
+  if (json.length > 1600) json = `${json.slice(0, 1600)}… (truncated)`;
+  return `${label}:\n${json}`;
+}
+
 /**
  * Step 1 — validate the member's credentials. Returns the member envelope (TransId, member
  * id, profile) that step 2 consumes.
@@ -101,21 +122,22 @@ export async function signInFlow(
   password: string,
 ): Promise<SignInResult> {
   const envelope = await initiateLogin(baseUrl, userId, password);
+  const loginToken = deepFindFirstString(envelope, ['accessToken', 'securityToken', 'token']);
   const completed = await completeLogin(baseUrl, envelope);
 
-  // completelogin returns the JWT as `securityToken`; find it wherever it sits (older/other
-  // builds used `accessToken`, so those are accepted as fallbacks).
-  const securityToken = deepFindFirstString(completed, [
-    'securityToken',
-    'accessToken',
-    'token',
-  ]);
+  // The JWT should come back on completelogin (as `securityToken`, or `accessToken` on some
+  // builds). If neither is present with a value, fall back to the login token if it had one.
+  const securityToken =
+    deepFindFirstString(completed, ['securityToken', 'accessToken', 'token']) ?? loginToken;
+
   if (!securityToken) {
-    const keys = topLevelKeys(completed).join(', ') || '(no fields)';
-    throw new ApiError(
-      `Login completed but no security token was found. Response fields: ${keys}`,
-      502,
-    );
+    const debug = [
+      `loginTokenPresent: ${Boolean(loginToken)}`,
+      `completeFields: ${topLevelKeys(completed).join(', ') || '(none)'}`,
+      dump('LOGIN', envelope),
+      dump('COMPLETELOGIN', completed),
+    ].join('\n\n');
+    throw new SignInError('No token found. Raw responses below.', debug);
   }
   return { securityToken, raw: completed };
 }
