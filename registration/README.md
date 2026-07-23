@@ -1,0 +1,73 @@
+# Member Registration API
+
+A **new, standalone .NET 8** service (Clean Architecture) that backs the portal sign-up flow:
+**email OTP verification** and **user account creation**. It is intentionally separate from the
+existing Auth/login service — the **only** thing they share is the **existing user database**.
+
+```
+registration/
+  src/
+    Domain/          Result/Error primitives, RegistrationErrors. No dependencies.
+    Application/     CQRS use cases (SendOtp, VerifyOtp, CreateAccount), FluentValidation, interfaces, options.
+    Infrastructure/  PBKDF2 hasher, cache-backed OTP service, SMTP/dev email senders, user repository.
+    Api/             Minimal-API endpoints, ProblemDetails, rate limiting, feature flag, Swagger.
+  tests/
+    Registration.UnitTests/  xUnit tests (password policy, OTP service, PBKDF2 hasher).
+```
+
+Dependencies point inward: `Api → Infrastructure → Application → Domain`.
+
+## Endpoints
+
+| Method | Route                              | Purpose                                                        |
+|--------|------------------------------------|----------------------------------------------------------------|
+| POST   | `/api/v1/registration/otp/send`    | Send a verification code to the email                          |
+| POST   | `/api/v1/registration/otp/resend`  | Resend the code (60s cooldown, per-email cap enforced)         |
+| POST   | `/api/v1/registration/otp/verify`  | Verify the emailed code                                        |
+| POST   | `/api/v1/registration/account`     | Create the user (email = username) after verification          |
+| GET    | `/health`                          | Health probe                                                   |
+
+The whole surface is gated by the **`Registration` feature flag** (`FeatureManagement:Registration`);
+when disabled every endpoint returns 404.
+
+## Running it (Development)
+
+```bash
+dotnet run --project registration/src/Api/Registration.Api.csproj
+```
+
+In **Development** it uses an **in-memory user store** and a **logging email sender** (the OTP is
+written to the console instead of emailed), so the full flow runs with no database or SMTP server.
+Swagger is served at `/swagger`.
+
+Typical flow: `POST /otp/send` → grab the code from the console log → `POST /otp/verify` →
+`POST /account`. See [`requests.http`](requests.http).
+
+## Key behaviours
+
+- **Email is the username / User ID.**
+- **Best-practice password hashing:** PBKDF2 (HMAC-SHA256, random per-password salt), behind
+  `IPasswordHasher` so the scheme (`PasswordHashing:Scheme`) can be swapped (Argon2id/BCrypt) later.
+  It writes a `(hash, salt)` pair to fit the existing user table's two columns.
+- **Server-side validation is the source of truth:** FluentValidation → RFC 7807
+  `ValidationProblemDetails` (400) listing exactly what is required.
+- **Duplicate email** → 409 Conflict.
+- **OTP:** 6-digit code, stored only as a SHA-256 hash, with expiry, a wrong-guess attempt cap, a
+  60s resend cooldown, and a configurable per-email request cap (default 10). State lives in a
+  cache — **no new tables**.
+- **Configurable everywhere** via options (`PasswordPolicy`, `Otp`, `PasswordHashing`, `Smtp`,
+  `RateLimiting`, `Cors`), validated on startup.
+
+## Going to production
+
+1. Set `UserStore:Provider=SqlServer` and `ConnectionStrings:MemberPortalDb` (the existing member
+   portal DB). Confirm the stored-proc/table names in `DapperUserRegistrationRepository` with the DBA
+   — they must target the **same user table the existing login reads**, and the hashing scheme must be
+   one that login can verify.
+2. Configure the real `Smtp` settings (host/port/TLS/credentials/from) via secrets/Key Vault.
+3. Set real `Cors:AllowedOrigins`, serve over HTTPS, and tune `PasswordHashing:Iterations`.
+
+## Deferred (future phases)
+
+Remaining wizard steps, audit trail, language preference, and the full hybrid existing-member
+enrollment verification are intentionally out of this first slice.
