@@ -18,6 +18,19 @@
     "android": {
       "package": "com.memberportal.mobile"
     },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          },
+          "ios": {
+            "flipper": false
+          }
+        }
+      ]
+    ],
     "web": {
       "bundler": "metro"
     },

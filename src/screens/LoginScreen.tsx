@@ -18,7 +18,7 @@ import { Field } from '../components/Field';
 import { theme } from '../theme';
 
 /** Bump this on every change so the running bundle is verifiable on-screen. */
-const BUILD = 'sso-dbg-7';
+const BUILD = 'sso-dbg-8';
 
 export function LoginScreen() {
   const { signIn, baseUrl, setBaseUrl } = useAuth();
@@ -126,7 +126,8 @@ export function LoginScreen() {
                 placeholder="http://192.168.x.x:38340"
               />
               <Text style={styles.hint}>
-                On a physical device use your computer's LAN IP, not localhost.
+                localhost only works on the iOS simulator. Android emulator: use
+                http://10.0.2.2:38340. Physical device (iOS/Android): use your computer's LAN IP.
               </Text>
             </View>
           ) : null}
