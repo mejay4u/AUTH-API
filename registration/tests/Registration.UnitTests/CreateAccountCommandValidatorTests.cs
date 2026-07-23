@@ -105,4 +105,23 @@ public sealed class CreateAccountCommandValidatorTests
     {
         Assert.True(CreateValidator().Validate(ValidCommand(contact: null)).IsValid);
     }
+
+    [Fact]
+    public void Applicant_under_16_is_rejected()
+    {
+        var fifteen = DateOnly.FromDateTime(DateTime.UtcNow).AddYears(-15);
+
+        var result = CreateValidator().Validate(ValidCommand(dob: fifteen));
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.PropertyName == nameof(CreateAccountCommand.DateOfBirth));
+    }
+
+    [Fact]
+    public void Applicant_exactly_16_is_allowed()
+    {
+        var sixteenToday = DateOnly.FromDateTime(DateTime.UtcNow).AddYears(-16);
+
+        Assert.True(CreateValidator().Validate(ValidCommand(dob: sixteenToday)).IsValid);
+    }
 }

@@ -48,6 +48,7 @@ Typical flow: `POST /otp/send` → grab the code from the console log → `POST 
 - **Email is the username / User ID.**
 - **Full personal information persisted** from the registration screen: first name, last name, date
   of birth, ZIP code, email, and optional contact number — all server-validated on account creation.
+- **Age gate:** applicants must be **16 or older** (validated from date of birth).
 - **Own database, database-first EF Core:** `RegistrationDbContext` maps the `User` entity to the
   `registration.Users` table whose schema is authored in SQL (`scripts/create-registration-user-table.sql`)
   — EF maps to it and does **not** own migrations. A **unique index on email/username** is the real
