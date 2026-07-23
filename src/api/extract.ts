@@ -38,6 +38,24 @@ export function deepFindFirstString(root: unknown, keys: string[]): string | nul
   return null;
 }
 
+/** Breadth-first search for the first non-null value under any key matching `key` (any type). */
+export function deepFindAny(root: unknown, key: string): unknown {
+  const target = key.toLowerCase();
+  const queue: unknown[] = [root];
+  while (queue.length) {
+    const cur = queue.shift();
+    if (!isObject(cur)) continue;
+    const entries = Object.entries(cur);
+    for (const [k, v] of entries) {
+      if (k.toLowerCase() === target && v !== null && v !== undefined) return v;
+    }
+    for (const [, v] of entries) {
+      if (isObject(v)) queue.push(v);
+    }
+  }
+  return undefined;
+}
+
 /** Top-level keys of an object (for diagnostics when an expected field is missing). */
 export function topLevelKeys(root: unknown): string[] {
   return isObject(root) ? Object.keys(root) : [];
