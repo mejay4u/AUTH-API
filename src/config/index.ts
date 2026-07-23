@@ -57,12 +57,20 @@ export const config = {
       accent: '#34D399',
     },
     {
-      ssoName: 'SoftheonSSO',
+      ssoName: 'PLANOFCARESSO',
       lob: 'LAEX',
       planCode: 'LAEX',
-      name: 'Softheon',
-      description: 'Account management & premium payments (SSO to Softheon).',
+      name: 'Plan of Care',
+      description: 'Care plan, assessments and care-team details (SSO).',
       accent: '#60A5FA',
+    },
+    {
+      ssoName: 'ABARCASSO',
+      lob: 'LAEX',
+      planCode: 'LAEX',
+      name: 'Abarca — Pharmacy',
+      description: 'Pharmacy benefits, prescriptions and claims (SSO).',
+      accent: '#A78BFA',
     },
   ] as SsoPortal[],
 

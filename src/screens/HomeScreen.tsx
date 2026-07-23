@@ -1,6 +1,6 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useCallback, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ApiError } from '../api/http';
@@ -15,9 +15,13 @@ import { theme } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
+/** Where an SSO URL opens: the in-app WebView, or the device's default browser. */
+type BrowserMode = 'inapp' | 'browser';
+
 export function HomeScreen({ navigation }: Props) {
   const { session, signOut } = useAuth();
   const [launching, setLaunching] = useState<string | null>(null);
+  const [mode, setMode] = useState<BrowserMode>('inapp');
 
   const portals = config.ssoPortals;
 
@@ -33,6 +37,16 @@ export function HomeScreen({ navigation }: Props) {
             portal.name,
             'Single sign-on is not available for this portal on your account right now.',
           );
+          return;
+        }
+        if (mode === 'browser') {
+          // Hand the sign-on URL to the device's default browser (Safari/Chrome).
+          const canOpen = await Linking.canOpenURL(res.ssoUrl);
+          if (!canOpen) {
+            Alert.alert(portal.name, 'No browser is available to open this link.');
+            return;
+          }
+          await Linking.openURL(res.ssoUrl);
           return;
         }
         navigation.navigate('SsoWebView', { portalName: portal.name, url: res.ssoUrl });
@@ -54,7 +68,7 @@ export function HomeScreen({ navigation }: Props) {
         setLaunching(null);
       }
     },
-    [session, navigation, signOut],
+    [session, navigation, signOut, mode],
   );
 
   const displayName =
@@ -88,6 +102,25 @@ export function HomeScreen({ navigation }: Props) {
         <Text style={styles.sectionHint}>
           Tap a portal to sign in — you're logged in there automatically, no second password.
         </Text>
+
+        <View style={styles.segment}>
+          <Pressable
+            onPress={() => setMode('inapp')}
+            style={[styles.segmentBtn, mode === 'inapp' && styles.segmentBtnActive]}
+          >
+            <Text style={[styles.segmentText, mode === 'inapp' && styles.segmentTextActive]}>
+              In-app browser
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setMode('browser')}
+            style={[styles.segmentBtn, mode === 'browser' && styles.segmentBtnActive]}
+          >
+            <Text style={[styles.segmentText, mode === 'browser' && styles.segmentTextActive]}>
+              Default browser
+            </Text>
+          </Pressable>
+        </View>
 
         {portals.length === 0 ? (
           <Text style={styles.empty}>No SSO portals are configured.</Text>
@@ -148,5 +181,23 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing(2),
     lineHeight: 20,
   },
+  segment: {
+    flexDirection: 'row',
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
+    padding: 4,
+    marginBottom: theme.spacing(2),
+  },
+  segmentBtn: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: theme.radius.sm,
+    alignItems: 'center',
+  },
+  segmentBtnActive: { backgroundColor: theme.colors.primary },
+  segmentText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '700' },
+  segmentTextActive: { color: theme.colors.primaryText },
   empty: { color: theme.colors.textMuted, fontSize: 14, marginBottom: theme.spacing(2) },
 });

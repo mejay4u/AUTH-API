@@ -18,7 +18,7 @@ import { Field } from '../components/Field';
 import { theme } from '../theme';
 
 /** Bump this on every change so the running bundle is verifiable on-screen. */
-const BUILD = 'sso-dbg-5';
+const BUILD = 'sso-dbg-6';
 
 export function LoginScreen() {
   const { signIn, baseUrl, setBaseUrl } = useAuth();
