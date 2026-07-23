@@ -50,6 +50,28 @@ export interface MemberEnvelope {
 }
 
 /**
+ * Request body for step 2, `POST /api/v1/auth/completelogin`. Field names mirror the working
+ * Postman request. Built from the login response, not forwarded wholesale.
+ */
+export interface CompleteLoginRequest {
+  TransId: string;
+  AppId: string;
+  Entity: number;
+  Lang: string;
+  Version: string;
+  EligibilityStatus: string;
+  FamilyLinkId: string;
+  MemberId: string;
+  MedicaidId: string;
+  FirstName: string;
+  LastName: string;
+  DateOfBirth: string;
+  UserName: string;
+  EmailId: string;
+  PhoneNumbersList: string[];
+}
+
+/**
  * Response from step 2, `POST /api/v1/auth/completelogin`. Carries the JWT `securityToken`
  * used as the Bearer token for `GET /api/v1/sso`, plus display fields for the home screen.
  */

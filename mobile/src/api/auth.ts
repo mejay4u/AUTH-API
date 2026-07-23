@@ -1,7 +1,13 @@
 import { config } from '../config';
-import { deepFindFirstString, topLevelKeys } from './extract';
+import {
+  deepFindAny,
+  deepFindFirstString,
+  deepFindString,
+  topLevelKeys,
+} from './extract';
 import { ApiError, request } from './http';
 import type {
+  CompleteLoginRequest,
   CompleteLoginResponse,
   InitiateLoginRequest,
   MemberEnvelope,
@@ -40,21 +46,33 @@ export function initiateLogin(
 }
 
 /**
- * Step 2 — exchange the member envelope for a JWT `securityToken`. The envelope returned by
- * `initiateLogin` is forwarded as-is (with the tenant constants ensured), so no field the
- * server added is dropped.
+ * Step 2 — exchange the member profile for a JWT `securityToken`. The request must be the
+ * clean member envelope the endpoint expects (matching the working Postman body), NOT the raw
+ * login response — forwarding the whole login response makes the endpoint return a degraded
+ * shape with no token. Each field is pulled from the login response wherever it sits (the
+ * profile may be nested under a `data`/`loginIdentity` wrapper), so extraction is by key.
  */
 export function completeLogin(
   baseUrl: string,
-  envelope: MemberEnvelope,
+  login: MemberEnvelope,
 ): Promise<CompleteLoginResponse> {
-  const body: MemberEnvelope = {
-    ...envelope,
-    appId: envelope.appId ?? config.auth.appId,
-    planId: envelope.planId ?? config.auth.planId,
-    entity: envelope.entity ?? config.auth.entity,
-    lang: envelope.lang ?? config.auth.lang,
-    version: envelope.version ?? config.auth.version,
+  const phones = deepFindAny(login, 'phoneNumbersList');
+  const body: CompleteLoginRequest = {
+    TransId: deepFindString(login, 'transId') ?? '',
+    AppId: deepFindString(login, 'appId') ?? config.auth.appId,
+    Entity: (deepFindAny(login, 'entity') as number | undefined) ?? config.auth.entity,
+    Lang: deepFindString(login, 'lang') ?? config.auth.lang,
+    Version: deepFindString(login, 'version') ?? config.auth.version,
+    EligibilityStatus: deepFindString(login, 'eligibilityStatus') ?? '',
+    FamilyLinkId: deepFindString(login, 'familyLinkId') ?? '',
+    MemberId: deepFindString(login, 'memberId') ?? '',
+    MedicaidId: deepFindString(login, 'medicaidId') ?? '',
+    FirstName: deepFindString(login, 'firstName') ?? '',
+    LastName: deepFindString(login, 'lastName') ?? '',
+    DateOfBirth: deepFindString(login, 'dateOfBirth') ?? '',
+    UserName: deepFindString(login, 'userName') ?? '',
+    EmailId: deepFindFirstString(login, ['emailId', 'memberEmailId']) ?? '',
+    PhoneNumbersList: Array.isArray(phones) ? (phones as string[]) : [],
   };
   return request<CompleteLoginResponse>(baseUrl, config.endpoints.completeLogin, {
     method: 'POST',
@@ -74,11 +92,11 @@ export async function signInFlow(
   const envelope = await initiateLogin(baseUrl, userId, password);
   const completed = await completeLogin(baseUrl, envelope);
 
-  // The JWT is returned as `accessToken` (older builds called it `securityToken`); it may be
-  // top-level or nested in the response wrapper — find it wherever it is.
+  // completelogin returns the JWT as `securityToken`; find it wherever it sits (older/other
+  // builds used `accessToken`, so those are accepted as fallbacks).
   const securityToken = deepFindFirstString(completed, [
-    'accessToken',
     'securityToken',
+    'accessToken',
     'token',
   ]);
   if (!securityToken) {
