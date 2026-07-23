@@ -1,4 +1,4 @@
-import { DarkTheme, NavigationContainer } from '@react-navigation/native';
+import { DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -8,9 +8,9 @@ import { RootNavigator } from './src/navigation/RootNavigator';
 import { theme } from './src/theme';
 
 const navTheme = {
-  ...DarkTheme,
+  ...DefaultTheme,
   colors: {
-    ...DarkTheme.colors,
+    ...DefaultTheme.colors,
     background: theme.colors.background,
     card: theme.colors.background,
     text: theme.colors.text,
@@ -24,7 +24,7 @@ export default function App() {
     <SafeAreaProvider>
       <AuthProvider>
         <NavigationContainer theme={navTheme}>
-          <StatusBar style="light" />
+          <StatusBar style="dark" />
           <RootNavigator />
         </NavigationContainer>
       </AuthProvider>

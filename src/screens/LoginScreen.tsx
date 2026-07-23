@@ -18,7 +18,7 @@ import { Field } from '../components/Field';
 import { theme } from '../theme';
 
 /** Bump this on every change so the running bundle is verifiable on-screen. */
-const BUILD = 'sso-dbg-8';
+const BUILD = 'sso-dbg-9';
 
 export function LoginScreen() {
   const { signIn, baseUrl, setBaseUrl } = useAuth();
@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
   },
   debugBox: {
     maxHeight: 240,
-    backgroundColor: '#00000055',
+    backgroundColor: theme.colors.inputBg,
     borderColor: theme.colors.border,
     borderWidth: 1,
     borderRadius: theme.radius.sm,
@@ -180,7 +180,7 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing(1.5),
   },
   debugText: {
-    color: theme.colors.textMuted,
+    color: theme.colors.text,
     fontSize: 11,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },

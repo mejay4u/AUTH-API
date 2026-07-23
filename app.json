@@ -4,11 +4,11 @@
     "slug": "member-portal-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "scheme": "memberportal",
     "splash": {
       "resizeMode": "contain",
-      "backgroundColor": "#0B1120"
+      "backgroundColor": "#FFFFFF"
     },
     "assetBundlePatterns": ["**/*"],
     "ios": {
