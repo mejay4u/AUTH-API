@@ -46,16 +46,26 @@ export function initiateLogin(
 }
 
 /**
- * Step 2 — exchange the member profile for a JWT `securityToken`. The request must be the
- * clean member envelope the endpoint expects (matching the working Postman body), NOT the raw
- * login response — forwarding the whole login response makes the endpoint return a degraded
- * shape with no token. Each field is pulled from the login response wherever it sits (the
- * profile may be nested under a `data`/`loginIdentity` wrapper), so extraction is by key.
+ * Step 2 — exchange the member profile for a JWT `securityToken`.
+ *
+ * Two things this endpoint requires (both learned from the API's Scalar docs / Postman):
+ *   1. `Authorization: Bearer <accessToken>` where the token is the one returned by `login`.
+ *      Without it the endpoint returns a degraded passthrough shape with no `securityToken`.
+ *   2. A clean member envelope body (matching the working Postman request), NOT the raw login
+ *      response forwarded wholesale.
+ *
+ * Each field is pulled from the login response wherever it sits (the profile may be nested
+ * under a `data`/`loginIdentity` wrapper), so extraction is by key.
  */
 export function completeLogin(
   baseUrl: string,
   login: MemberEnvelope,
 ): Promise<CompleteLoginResponse> {
+  const loginAccessToken = deepFindFirstString(login, [
+    'accessToken',
+    'securityToken',
+    'token',
+  ]);
   const phones = deepFindAny(login, 'phoneNumbersList');
   const body: CompleteLoginRequest = {
     TransId: deepFindString(login, 'transId') ?? '',
@@ -77,6 +87,7 @@ export function completeLogin(
   return request<CompleteLoginResponse>(baseUrl, config.endpoints.completeLogin, {
     method: 'POST',
     body,
+    accessToken: loginAccessToken,
   });
 }
 
