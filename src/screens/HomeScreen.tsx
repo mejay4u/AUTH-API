@@ -1,4 +1,5 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import * as WebBrowser from 'expo-web-browser';
 import React, { useCallback, useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,8 +16,26 @@ import { theme } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
-/** Where an SSO URL opens: the in-app WebView, or the device's default browser. */
-type BrowserMode = 'inapp' | 'browser';
+/**
+ * Where an SSO URL opens:
+ *  - 'webview'  : the app's embedded WebView (react-native-webview), fully in-app, isolated cookies.
+ *  - 'inapp'    : an in-app system browser (SFSafariViewController / Chrome Custom Tab) via
+ *                 expo-web-browser — stays in-app but shares Safari cookies; best for SSO.
+ *  - 'external' : the device's default browser app (Safari/Chrome) via Linking.
+ */
+type BrowserMode = 'webview' | 'inapp' | 'external';
+
+const MODE_LABEL: Record<BrowserMode, string> = {
+  webview: 'Embedded',
+  inapp: 'In-app',
+  external: 'Browser',
+};
+
+const MODE_HINT: Record<BrowserMode, string> = {
+  webview: 'Embedded WebView — stays in the app, isolated session.',
+  inapp: 'In-app Safari — stays in the app, shares your Safari session (best for SSO).',
+  external: 'Default browser — opens Safari/Chrome outside the app.',
+};
 
 export function HomeScreen({ navigation }: Props) {
   const { session, signOut } = useAuth();
@@ -39,17 +58,22 @@ export function HomeScreen({ navigation }: Props) {
           );
           return;
         }
-        if (mode === 'browser') {
-          // Hand the sign-on URL to the device's default browser (Safari/Chrome).
-          const canOpen = await Linking.canOpenURL(res.ssoUrl);
-          if (!canOpen) {
-            Alert.alert(portal.name, 'No browser is available to open this link.');
-            return;
-          }
-          await Linking.openURL(res.ssoUrl);
+        if (mode === 'webview') {
+          navigation.navigate('SsoWebView', { portalName: portal.name, url: res.ssoUrl });
           return;
         }
-        navigation.navigate('SsoWebView', { portalName: portal.name, url: res.ssoUrl });
+        if (mode === 'inapp') {
+          // In-app system browser (SFSafariViewController / Chrome Custom Tab).
+          await WebBrowser.openBrowserAsync(res.ssoUrl);
+          return;
+        }
+        // External default browser (Safari/Chrome).
+        const canOpen = await Linking.canOpenURL(res.ssoUrl);
+        if (!canOpen) {
+          Alert.alert(portal.name, 'No browser is available to open this link.');
+          return;
+        }
+        await Linking.openURL(res.ssoUrl);
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {
           Alert.alert('Session expired', 'Please sign in again.', [
@@ -104,23 +128,19 @@ export function HomeScreen({ navigation }: Props) {
         </Text>
 
         <View style={styles.segment}>
-          <Pressable
-            onPress={() => setMode('inapp')}
-            style={[styles.segmentBtn, mode === 'inapp' && styles.segmentBtnActive]}
-          >
-            <Text style={[styles.segmentText, mode === 'inapp' && styles.segmentTextActive]}>
-              In-app browser
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setMode('browser')}
-            style={[styles.segmentBtn, mode === 'browser' && styles.segmentBtnActive]}
-          >
-            <Text style={[styles.segmentText, mode === 'browser' && styles.segmentTextActive]}>
-              Default browser
-            </Text>
-          </Pressable>
+          {(['webview', 'inapp', 'external'] as BrowserMode[]).map((m) => (
+            <Pressable
+              key={m}
+              onPress={() => setMode(m)}
+              style={[styles.segmentBtn, mode === m && styles.segmentBtnActive]}
+            >
+              <Text style={[styles.segmentText, mode === m && styles.segmentTextActive]}>
+                {MODE_LABEL[m]}
+              </Text>
+            </Pressable>
+          ))}
         </View>
+        <Text style={styles.segmentHint}>{MODE_HINT[mode]}</Text>
 
         {portals.length === 0 ? (
           <Text style={styles.empty}>No SSO portals are configured.</Text>
@@ -188,7 +208,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     borderRadius: theme.radius.md,
     padding: 4,
-    marginBottom: theme.spacing(2),
+    marginBottom: 8,
   },
   segmentBtn: {
     flex: 1,
@@ -199,5 +219,11 @@ const styles = StyleSheet.create({
   segmentBtnActive: { backgroundColor: theme.colors.primary },
   segmentText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '700' },
   segmentTextActive: { color: theme.colors.primaryText },
+  segmentHint: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    marginBottom: theme.spacing(2),
+    lineHeight: 17,
+  },
   empty: { color: theme.colors.textMuted, fontSize: 14, marginBottom: theme.spacing(2) },
 });
