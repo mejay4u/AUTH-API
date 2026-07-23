@@ -1,11 +1,9 @@
-import type { SsoLaunch } from '../api/types';
-
 export type RootStackParamList = {
   Login: undefined;
   Home: undefined;
   SsoWebView: {
-    portalCode: string;
     portalName: string;
-    launch: SsoLaunch;
+    /** The complete federated sign-on URL returned by GET /api/v1/sso. */
+    url: string;
   };
 };

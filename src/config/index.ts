@@ -1,5 +1,7 @@
 import Constants from 'expo-constants';
 
+import type { SsoPortal } from '../api/types';
+
 /**
  * Central configuration for the Member Portal mobile app.
  *
@@ -16,56 +18,59 @@ export const config = {
   /** Base URL of the Auth API. Overridable at runtime from the login screen. */
   defaultApiBaseUrl: extra.apiBaseUrl ?? 'http://localhost:5155',
 
-  /** Auth API routes (these already exist in the .NET solution). */
+  /** Auth API routes. */
   endpoints: {
     login: '/api/v1/auth/login',
     refresh: '/api/v1/auth/refresh',
     me: '/api/v1/members/me',
 
     /**
-     * SSO endpoints. Adjust these to match your Auth API.
-     *
-     * - `ssoInitiate`   : POST { portal } (Bearer) -> launch descriptor (see SsoLaunch type).
-     *                     `{portal}` in the path is replaced with the portal code, e.g. "HRA".
-     * - `ssoCompleteLogon` : optional POST the app calls once the portal round-trip is done.
-     * - `ssoPortals`    : optional GET returning the portals available to the member.
+     * Federated SSO. `GET /api/v1/sso?lob=&ssoName=&planCode=` (Bearer) returns an
+     * `SsoResponse` whose `ssoUrl` is the complete PingFederate sign-on URL to open.
      */
-    ssoInitiate: '/api/v1/sso/{portal}/initiate',
-    ssoCompleteLogon: '/api/v1/sso/{portal}/complete-logon',
-    ssoPortals: '/api/v1/sso/portals',
+    sso: '/api/v1/sso',
   },
 
   /**
    * Lines of business the login screen lets the member pick from. `login` requires a
-   * `lob` — it selects which line-of-business database to authenticate against.
+   * `lob` — it selects which line-of-business database to authenticate against. (This is
+   * separate from the numeric SSO `lob` codes used by the portal catalog below.)
    */
   lobs: ['DENTAL', 'VISION', 'MEDICAL', 'RX'] as const,
 
   /**
-   * Fallback SSO portal catalog shown after login when the API does not expose a
-   * `ssoPortals` endpoint (or it returns nothing). `code` is what gets sent to
-   * `ssoInitiate`. HRA is included as the worked example from the requirements.
+   * SSO portal catalog shown after login. The Auth API has no "list SSOs" endpoint, so the
+   * portals a member can launch are declared here. Each entry's `ssoName` + `lob` (+ optional
+   * `planCode`) are sent to `GET /api/v1/sso`; a 404 from the API means that pairing isn't
+   * configured server-side and the app surfaces a friendly message.
+   *
+   * `ssoName` must be one the API knows: HRA, CHATSSO, CERTIFISSO, ABARCASSO, SOFTHEONSSO,
+   * PLANOFCARESSO, SDS. `lob` is the numeric LOB code the SSO config is keyed by (e.g. 2100).
+   * HRA is the worked example from the requirements.
    */
-  fallbackPortals: [
+  ssoPortals: [
     {
-      code: 'HRA',
+      ssoName: 'HRA',
+      lob: '2100',
       name: 'HRA Portal',
       description: 'Health Reimbursement Account — balances, claims & reimbursements.',
       accent: '#34D399',
     },
     {
-      code: 'DENTAL',
-      name: 'Dental Benefits',
-      description: 'View dental coverage, find a dentist, track claims.',
+      ssoName: 'CHATSSO',
+      lob: '2100',
+      name: 'Member Chat',
+      description: 'Chat with a benefits specialist, signed in automatically.',
       accent: '#60A5FA',
     },
     {
-      code: 'VISION',
-      name: 'Vision Benefits',
-      description: 'Vision plan details, in-network providers and allowances.',
+      ssoName: 'CERTIFISSO',
+      lob: '2100',
+      name: 'Payments (Certifi)',
+      description: 'Pay premiums and manage billing.',
       accent: '#A78BFA',
     },
-  ],
+  ] as SsoPortal[],
 
   /**
    * When an SSO WebView navigates to a URL that starts with any of these, the app treats

@@ -24,29 +24,48 @@ export interface MeResponse {
   planIds: number[];
 }
 
-/** A single-sign-on target shown to the member after login. */
-export interface Portal {
-  code: string;
+/**
+ * A single-sign-on target shown to the member after login. This is app-side catalog
+ * config (the Auth API has no "list SSOs" endpoint): `ssoName` + `lob` are what get sent
+ * to `GET /api/v1/sso`; the rest is presentation.
+ */
+export interface SsoPortal {
+  /** SSO name understood by the API, e.g. "HRA", "CHATSSO", "CERTIFISSO". */
+  ssoName: string;
+  /** Line-of-business code the SSO config is keyed by, e.g. "2100". */
+  lob: string;
+  /** Optional plan code, when the SSO config is plan-specific. */
+  planCode?: string;
   name: string;
   description?: string;
   accent?: string;
 }
 
+/** One SSO configuration row (SsoConfigItem in the .NET API). */
+export interface SsoConfigItem {
+  ssoName: string;
+  description: string | null;
+  pingFedUrl: string | null;
+  pingFedReturnUrl: string | null;
+  assessmentName: string | null;
+  level: string | null;
+  argusCustomerId: string | null;
+}
+
 /**
- * Descriptor the app uses to launch a portal in a WebView. Returned by `ssoInitiate`.
- * Supports the two common SSO binding styles:
- *
- *   1. Redirect / GET  — `{ method: "GET", url }`. The app just loads `url`.
- *   2. SAML / form POST — `{ method: "POST", url, formFields }`. The app renders an
- *      auto-submitting HTML form that POSTs `formFields` to `url`.
+ * Response from `GET /api/v1/sso` (SsoResponse in the .NET API). `ssoUrl` is the complete
+ * federated sign-on URL to open in a WebView. It can be null for a skipped LOB or an SSO
+ * name with no URL provider, in which case only configuration is returned.
  */
-export interface SsoLaunch {
-  portal: string;
-  method?: 'GET' | 'POST';
-  /** The portal / ACS URL to open (GET) or POST the form to. */
-  url: string;
-  /** Hidden form fields for POST binding, e.g. { SAMLResponse, RelayState }. */
-  formFields?: Record<string, string>;
+export interface SsoResponse {
+  memberId: string;
+  designeeId: string | null;
+  role: string;
+  lob: string;
+  ssoName: string;
+  assessmentName: string | null;
+  ssoUrl: string | null;
+  data: SsoConfigItem[];
 }
 
 /** RFC 7807 ProblemDetails returned by the API on errors. */
