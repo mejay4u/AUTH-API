@@ -7,7 +7,6 @@ import {
 } from './extract';
 import { ApiError, request } from './http';
 import type {
-  CompleteLoginRequest,
   CompleteLoginResponse,
   InitiateLoginRequest,
   MemberEnvelope,
@@ -71,40 +70,67 @@ export function initiateLogin(
  *   - `login` returns NO token; `completelogin` returns the `accessToken`.
  *   - `completelogin` does NOT require a Bearer token.
  *
- * The body is the full login response (so no field the endpoint needs is dropped) merged with
- * the explicitly-named envelope fields the working Postman request uses — extracted by key so a
- * nested `data`/`loginIdentity` wrapper is handled, and with the right (Pascal) casing on top.
- * Any token key from the login response is stripped so nothing stale is echoed back.
+ * The request body must carry EVERY field the endpoint expects (mirroring the working
+ * Scalar/Postman request), most importantly `SessionKey` and `LoginIdentity` which correlate
+ * the transaction — omitting them makes the server return the response with a null token.
+ * Each field is extracted from the login response by key (deepFind, so a nested `data`
+ * wrapper is handled) and emitted with the exact PascalCase the endpoint uses.
  */
 export function completeLogin(
   baseUrl: string,
   login: MemberEnvelope,
 ): Promise<CompleteLoginResponse> {
-  const phones = deepFindAny(login, 'phoneNumbersList');
-  const named: CompleteLoginRequest = {
-    TransId: deepFindString(login, 'transId') ?? '',
-    AppId: deepFindString(login, 'appId') ?? config.auth.appId,
-    Entity: (deepFindAny(login, 'entity') as number | undefined) ?? config.auth.entity,
-    Lang: deepFindString(login, 'lang') ?? config.auth.lang,
-    Version: deepFindString(login, 'version') ?? config.auth.version,
-    EligibilityStatus: deepFindString(login, 'eligibilityStatus') ?? '',
-    FamilyLinkId: deepFindString(login, 'familyLinkId') ?? '',
-    MemberId: deepFindString(login, 'memberId') ?? '',
-    MedicaidId: deepFindString(login, 'medicaidId') ?? '',
-    FirstName: deepFindString(login, 'firstName') ?? '',
-    LastName: deepFindString(login, 'lastName') ?? '',
-    DateOfBirth: deepFindString(login, 'dateOfBirth') ?? '',
-    UserName: deepFindString(login, 'userName') ?? '',
-    EmailId: deepFindFirstString(login, ['emailId', 'memberEmailId']) ?? '',
-    PhoneNumbersList: Array.isArray(phones) ? (phones as string[]) : [],
+  const str = (key: string) => deepFindString(login, key);
+  const firstStr = (keys: string[]) => deepFindFirstString(login, keys);
+  const boolOf = (key: string): boolean => {
+    const v = deepFindAny(login, key);
+    return typeof v === 'boolean' ? v : false;
   };
+  const numOf = (key: string): number | undefined => {
+    const v = deepFindAny(login, key);
+    return typeof v === 'number' ? v : undefined;
+  };
+  const arrOf = (key: string): unknown[] => {
+    const v = deepFindAny(login, key);
+    return Array.isArray(v) ? v : [];
+  };
+  const nullableStr = (key: string): string | null => str(key);
 
-  const passthrough: Record<string, unknown> = { ...login };
-  delete passthrough.accessToken;
-  delete passthrough.securityToken;
-  delete passthrough.token;
-
-  const body = { ...passthrough, ...named };
+  const body = {
+    TransId: str('transId') ?? '',
+    AppId: str('appId') ?? config.auth.appId,
+    Entity: numOf('entity') ?? config.auth.entity,
+    Lang: str('lang') ?? config.auth.lang,
+    Version: str('version') ?? config.auth.version,
+    EligibilityStatus: str('eligibilityStatus') ?? '',
+    FamilyLinkId: str('familyLinkId') ?? '',
+    MemberId: str('memberId') ?? '',
+    MedicaidId: str('medicaidId') ?? '',
+    FirstName: str('firstName') ?? '',
+    LastName: str('lastName') ?? '',
+    DateOfBirth: str('dateOfBirth') ?? '',
+    UserName: str('userName') ?? '',
+    EmailId: firstStr(['emailId', 'memberEmailId']) ?? '',
+    PhoneNumbersList: arrOf('phoneNumbersList'),
+    IsLoggedInMember: boolOf('isLoggedInMember'),
+    IsTermedOrDelinquentMember: boolOf('isTermedOrDelinquentMember'),
+    Gender: nullableStr('gender'),
+    LanguagePreference: nullableStr('languagePreference'),
+    MemberRole: firstStr(['memberRole', 'userRole']),
+    IsTermedMember: boolOf('isTermedMember'),
+    IsTermedReadOnlyMember: boolOf('isTermedReadOnlyMember'),
+    IsInactiveReadOnlyMember: boolOf('isInactiveReadOnlyMember'),
+    EligibilityCoverageStatus: nullableStr('eligibilityCoverageStatus'),
+    EligibilityCoverageDate: nullableStr('eligibilityCoverageDate'),
+    MiddleName: nullableStr('middleName'),
+    MedicareId: nullableStr('medicareId'),
+    MemberDependentsData: arrOf('memberDependentsData'),
+    MFAPreference: boolOf('mfaPreference'),
+    // The two fields that were missing — they tie completelogin back to the login transaction.
+    SessionKey: str('sessionKey') ?? '',
+    LoginIdentity: str('loginIdentity') ?? '',
+    IsCustomUserId: boolOf('isCustomUserId'),
+  };
 
   return request<CompleteLoginResponse>(baseUrl, config.endpoints.completeLogin, {
     method: 'POST',
