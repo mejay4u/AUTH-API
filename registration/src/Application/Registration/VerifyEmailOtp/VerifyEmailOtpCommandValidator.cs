@@ -10,10 +10,8 @@ public sealed class VerifyEmailOtpCommandValidator : AbstractValidator<VerifyEma
     {
         var codeLength = options.Value.CodeLength;
 
-        RuleFor(x => x.Email)
-            .NotEmpty().WithMessage("Email address is required.")
-            .EmailAddress().WithMessage("Enter a valid email address.")
-            .MaximumLength(256);
+        RuleFor(x => x.RegistrationId)
+            .NotEmpty().WithMessage("A registration session id is required.");
 
         RuleFor(x => x.Code)
             .NotEmpty().WithMessage("Verification code is required.")

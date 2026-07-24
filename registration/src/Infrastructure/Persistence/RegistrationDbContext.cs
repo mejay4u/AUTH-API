@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Registration.Domain.Registration;
 using Registration.Domain.Users;
 
 namespace Registration.Infrastructure.Persistence;
@@ -13,6 +14,8 @@ namespace Registration.Infrastructure.Persistence;
 public sealed class RegistrationDbContext(DbContextOptions<RegistrationDbContext> options) : DbContext(options)
 {
     public DbSet<User> Users => Set<User>();
+
+    public DbSet<PendingRegistration> PendingRegistrations => Set<PendingRegistration>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

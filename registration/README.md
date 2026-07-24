@@ -7,25 +7,30 @@ existing Auth/login service — the **only** thing they share is the **existing 
 ```
 registration/
   src/
-    Domain/          Result/Error primitives, RegistrationErrors. No dependencies.
-    Application/     CQRS use cases (SendOtp, VerifyOtp, CreateAccount), FluentValidation, interfaces, options.
+    Domain/          Result/Error primitives, RegistrationErrors, User, PendingRegistration. No dependencies.
+    Application/     CQRS use cases (StartRegistration, ResendOtp, VerifyOtp, CreateAccount), FluentValidation, interfaces, options.
     Infrastructure/  EF Core DbContext (database-first), PBKDF2 hasher, cache-backed OTP service, SMTP/dev email senders.
     Api/             Minimal-API endpoints, ProblemDetails, rate limiting, feature flag, Swagger.
   tests/
-    Registration.UnitTests/  xUnit tests (password policy, OTP service, PBKDF2 hasher).
+    Registration.UnitTests/  xUnit tests (validators, OTP service, handlers, EF repositories, hasher).
 ```
 
 Dependencies point inward: `Api → Infrastructure → Application → Domain`.
 
-## Endpoints
+## Flow & endpoints
 
-| Method | Route                              | Purpose                                                        |
-|--------|------------------------------------|----------------------------------------------------------------|
-| POST   | `/api/v1/registration/otp/send`    | Send a verification code to the email                          |
-| POST   | `/api/v1/registration/otp/resend`  | Resend the code (60s cooldown, per-email cap enforced)         |
-| POST   | `/api/v1/registration/otp/verify`  | Verify the emailed code                                        |
-| POST   | `/api/v1/registration/account`     | Create the user (email = username) after verification          |
-| GET    | `/health`                          | Health probe                                                   |
+The pre-account steps run against a **server-side registration session** (`PendingRegistration`) so the
+server, not the client, owns the in-progress registration. `start` opens the session, `verify` flips its
+email-verified flag, and `account` promotes it to a real `User` and deletes it. Steps after account
+creation (plan linking) operate on the created user.
+
+| Method | Route                              | Purpose                                                              |
+|--------|------------------------------------|---------------------------------------------------------------------|
+| POST   | `/api/v1/registration/start`       | Submit personal info → open a session + email a code → `registrationId` |
+| POST   | `/api/v1/registration/otp/resend`  | Resend the code (60s cooldown, per-email cap enforced)              |
+| POST   | `/api/v1/registration/otp/verify`  | Verify the emailed code for the session                             |
+| POST   | `/api/v1/registration/account`     | Create the user from the verified session (email = username)        |
+| GET    | `/health`                          | Health probe                                                        |
 
 The whole surface is gated by the **`Registration` feature flag** (`FeatureManagement:Registration`);
 when disabled every endpoint returns 404.
@@ -40,8 +45,8 @@ In **Development** it uses the **EF Core InMemory provider** and a **logging ema
 written to the console instead of emailed), so the full flow runs with no database or SMTP server.
 Swagger is served at `/swagger`.
 
-Typical flow: `POST /otp/send` → grab the code from the console log → `POST /otp/verify` →
-`POST /account`. See [`requests.http`](requests.http).
+Typical flow: `POST /start` → grab the code from the console log → `POST /otp/verify` (with the
+`registrationId`) → `POST /account`. See [`requests.http`](requests.http).
 
 ## Key behaviours
 
@@ -49,6 +54,10 @@ Typical flow: `POST /otp/send` → grab the code from the console log → `POST 
 - **Full personal information persisted** from the registration screen: first name, last name, date
   of birth, ZIP code, email, and optional contact number — all server-validated on account creation.
 - **Age gate:** applicants must be **16 or older** (validated from date of birth).
+- **Server-side registration session** (`registration.PendingRegistrations`): personal info + verified
+  flag live on the server between steps; account creation promotes the session to a `User` and deletes
+  it. Sessions carry an `ExpiresUtc` (configurable `Registration:SessionLifetimeMinutes`, default 60);
+  a scheduled `DELETE` purges abandoned ones (see the DDL script).
 - **Own database, database-first EF Core:** `RegistrationDbContext` maps the `User` entity to the
   `registration.Users` table whose schema is authored in SQL (`scripts/create-registration-user-table.sql`)
   — EF maps to it and does **not** own migrations. A **unique index on email/username** is the real
@@ -57,9 +66,10 @@ Typical flow: `POST /otp/send` → grab the code from the console log → `POST 
   `IPasswordHasher` so the scheme (`PasswordHashing:Scheme`) can be swapped (Argon2id/BCrypt) later.
 - **Server-side validation is the source of truth:** FluentValidation → RFC 7807
   `ValidationProblemDetails` (400) listing exactly what is required.
-- **Duplicate email**, checked early and late: at **OTP send** the flow is refused for an already-
-  registered email in an **enumeration-safe** way (same generic response, no code issued), and again at
-  **account creation** → 409 Conflict. A **unique DB index** on email/username is the final guard.
+- **Duplicate email**, checked early and late: at **start** a code is not issued for an already-
+  registered email in an **enumeration-safe** way (a `registrationId` is still returned, so existence
+  isn't revealed), and again at **account creation** → 409 Conflict. A **unique DB index** on
+  email/username is the final guard.
 - **OTP:** 6-digit code, stored only as a SHA-256 hash, with expiry, a wrong-guess attempt cap, a
   60s resend cooldown, and a configurable per-email request cap (default 10). State lives in a
   cache — **no new tables**.

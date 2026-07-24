@@ -43,6 +43,10 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(OtpOptions.SectionName))
             .ValidateOnStart();
 
+        services.AddOptions<RegistrationOptions>()
+            .Bind(configuration.GetSection(RegistrationOptions.SectionName))
+            .ValidateOnStart();
+
         services.AddOptions<PasswordHashingOptions>()
             .Bind(configuration.GetSection(PasswordHashingOptions.SectionName))
             .ValidateOnStart();
@@ -90,5 +94,6 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IUserRegistrationRepository, EfUserRegistrationRepository>();
+        services.AddScoped<IPendingRegistrationRepository, EfPendingRegistrationRepository>();
     }
 }

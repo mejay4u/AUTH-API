@@ -20,7 +20,7 @@ public sealed class OtpServiceTests
     }
 
     [Fact]
-    public async Task Issue_then_verify_with_the_correct_code_succeeds_and_marks_verified()
+    public async Task Issue_then_verify_with_the_correct_code_succeeds()
     {
         var (service, _) = Create();
 
@@ -30,7 +30,21 @@ public sealed class OtpServiceTests
         var verify = await service.VerifyAsync(Email, issued.Value.Code, CancellationToken.None);
 
         Assert.True(verify.IsSuccess);
-        Assert.True(await service.IsVerifiedAsync(Email, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_verified_code_cannot_be_reused()
+    {
+        var (service, _) = Create();
+
+        var issued = await service.IssueAsync(Email, CancellationToken.None);
+        await service.VerifyAsync(Email, issued.Value.Code, CancellationToken.None);
+
+        // Second attempt with the same (now consumed) code fails.
+        var again = await service.VerifyAsync(Email, issued.Value.Code, CancellationToken.None);
+
+        Assert.True(again.IsFailure);
+        Assert.Equal(RegistrationErrors.OtpExpiredOrNotFound, again.Error);
     }
 
     [Fact]
@@ -45,7 +59,6 @@ public sealed class OtpServiceTests
         Assert.True(first.IsFailure);
         Assert.Equal(RegistrationErrors.OtpInvalid, first.Error);
 
-        // Second wrong attempt exhausts the limit.
         var second = await service.VerifyAsync(Email, wrongCode, CancellationToken.None);
         Assert.Equal(RegistrationErrors.OtpTooManyAttempts, second.Error);
     }
@@ -92,18 +105,5 @@ public sealed class OtpServiceTests
 
         Assert.True(verify.IsFailure);
         Assert.Equal(RegistrationErrors.OtpExpiredOrNotFound, verify.Error);
-    }
-
-    [Fact]
-    public async Task ConsumeVerified_clears_the_verified_flag()
-    {
-        var (service, _) = Create();
-
-        var issued = await service.IssueAsync(Email, CancellationToken.None);
-        await service.VerifyAsync(Email, issued.Value.Code, CancellationToken.None);
-
-        await service.ConsumeVerifiedAsync(Email, CancellationToken.None);
-
-        Assert.False(await service.IsVerifiedAsync(Email, CancellationToken.None));
     }
 }

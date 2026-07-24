@@ -1,32 +1,10 @@
 @host = https://localhost:7202
+# After /start, copy the returned registrationId into @regId below.
+@regId = 00000000-0000-0000-0000-000000000000
 
-### 1) Send the email OTP (in Development the code is logged to the console)
-POST {{host}}/api/v1/registration/otp/send
-Content-Type: application/json
-
-{
-  "email": "john.doe@gmail.com"
-}
-
-### 1b) Resend the OTP (subject to the 60s cooldown + per-email cap)
-POST {{host}}/api/v1/registration/otp/resend
-Content-Type: application/json
-
-{
-  "email": "john.doe@gmail.com"
-}
-
-### 2) Verify the OTP (use the code from the console log)
-POST {{host}}/api/v1/registration/otp/verify
-Content-Type: application/json
-
-{
-  "email": "john.doe@gmail.com",
-  "code": "123456"
-}
-
-### 3) Create the account (email is the username; includes the registration screen's personal info)
-POST {{host}}/api/v1/registration/account
+### 1) Start registration (Step 1: personal info). Returns { registrationId }.
+### In Development the OTP is written to the console.
+POST {{host}}/api/v1/registration/start
 Content-Type: application/json
 
 {
@@ -35,7 +13,32 @@ Content-Type: application/json
   "dateOfBirth": "1990-05-15",
   "zipCode": "12345",
   "email": "john.doe@gmail.com",
-  "contactNumber": "123-456-7890",
+  "contactNumber": "123-456-7890"
+}
+
+### 1b) Resend the code (subject to the 60s cooldown + per-email cap)
+POST {{host}}/api/v1/registration/otp/resend
+Content-Type: application/json
+
+{
+  "registrationId": "{{regId}}"
+}
+
+### 2) Verify the OTP (use the code from the console log)
+POST {{host}}/api/v1/registration/otp/verify
+Content-Type: application/json
+
+{
+  "registrationId": "{{regId}}",
+  "code": "123456"
+}
+
+### 3) Create the account (only the password — personal info comes from the session)
+POST {{host}}/api/v1/registration/account
+Content-Type: application/json
+
+{
+  "registrationId": "{{regId}}",
   "password": "Str0ng!Pass",
   "confirmPassword": "Str0ng!Pass"
 }

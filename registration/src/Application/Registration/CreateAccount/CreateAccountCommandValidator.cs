@@ -6,8 +6,8 @@ namespace Registration.Application.Registration.CreateAccount;
 
 /// <summary>
 /// Server-side, authoritative validation for account creation. Reads the configurable
-/// <see cref="PasswordPolicyOptions"/> so the password rules change via config, never code. Every field
-/// from the registration screen is validated here; messages state exactly what is required.
+/// <see cref="PasswordPolicyOptions"/> so the password rules change via config, never code. Personal
+/// information was validated when the session was opened (StartRegistration).
 /// </summary>
 public sealed class CreateAccountCommandValidator : AbstractValidator<CreateAccountCommand>
 {
@@ -15,37 +15,9 @@ public sealed class CreateAccountCommandValidator : AbstractValidator<CreateAcco
     {
         var policy = options.Value;
 
-        // --- Personal information ---
-        RuleFor(x => x.FirstName)
-            .NotEmpty().WithMessage("First name is required.")
-            .MaximumLength(100);
+        RuleFor(x => x.RegistrationId)
+            .NotEmpty().WithMessage("A registration session id is required.");
 
-        RuleFor(x => x.LastName)
-            .NotEmpty().WithMessage("Last name is required.")
-            .MaximumLength(100);
-
-        RuleFor(x => x.DateOfBirth)
-            .Cascade(CascadeMode.Stop)
-            .Must(BeAValidDateOfBirth)
-                .WithMessage("Enter a valid date of birth (a real date in the past).")
-            .Must(BeAtLeastMinimumAge)
-                .WithMessage($"You must be at least {MinimumAgeYears} years old to register.");
-
-        RuleFor(x => x.ZipCode)
-            .NotEmpty().WithMessage("ZIP code is required.")
-            .Matches(@"^\d{5}(-\d{4})?$").WithMessage("Enter a valid ZIP code (12345 or 12345-6789).");
-
-        RuleFor(x => x.Email)
-            .NotEmpty().WithMessage("Email address is required.")
-            .EmailAddress().WithMessage("Enter a valid email address.")
-            .MaximumLength(256);
-
-        // Contact number is optional; validate only when supplied.
-        When(x => !string.IsNullOrWhiteSpace(x.ContactNumber), () =>
-            RuleFor(x => x.ContactNumber)
-                .Matches(@"^[0-9+()\-\s]{7,20}$").WithMessage("Enter a valid contact number."));
-
-        // --- Password ---
         RuleFor(x => x.Password)
             .NotEmpty().WithMessage("Password is required.")
             .MinimumLength(policy.MinLength)
@@ -78,25 +50,5 @@ public sealed class CreateAccountCommandValidator : AbstractValidator<CreateAcco
         RuleFor(x => x.ConfirmPassword)
             .Equal(x => x.Password)
             .WithMessage("Passwords do not match.");
-    }
-
-    /// <summary>Minimum age to register.</summary>
-    private const int MinimumAgeYears = 16;
-
-    private static bool BeAValidDateOfBirth(DateOnly dateOfBirth) =>
-        dateOfBirth != default
-        && dateOfBirth.Year >= 1900
-        && dateOfBirth < DateOnly.FromDateTime(DateTime.UtcNow);
-
-    private static bool BeAtLeastMinimumAge(DateOnly dateOfBirth)
-    {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var age = today.Year - dateOfBirth.Year;
-        if (dateOfBirth > today.AddYears(-age))
-        {
-            age--; // birthday hasn't occurred yet this year
-        }
-
-        return age >= MinimumAgeYears;
     }
 }

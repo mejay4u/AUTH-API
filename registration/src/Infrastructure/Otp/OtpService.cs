@@ -13,7 +13,8 @@ namespace Registration.Infrastructure.Otp;
 /// <summary>
 /// Cache-backed email OTP service. Stores only a SHA-256 hash of each code (never the raw code), with
 /// expiry, a wrong-guess attempt limit, a resend cooldown, and a per-email request cap — all in
-/// <see cref="IMemoryCache"/> so no database table is added. Swap in <c>IDistributedCache</c> for a
+/// <see cref="IMemoryCache"/> so the transient secret never touches a table. Whether an email is
+/// verified is tracked on the registration session, not here. Swap in <c>IDistributedCache</c> for a
 /// multi-instance deployment without changing callers.
 /// </summary>
 public sealed class OtpService(
@@ -89,31 +90,15 @@ public sealed class OtpService(
                 entry.AttemptsRemaining <= 0 ? RegistrationErrors.OtpTooManyAttempts : RegistrationErrors.OtpInvalid));
         }
 
-        // Success: mark the email verified for a limited window and consume the code.
-        cache.Set(
-            VerifiedKey(email),
-            true,
-            new MemoryCacheEntryOptions { AbsoluteExpiration = now.AddMinutes(_options.VerifiedWindowMinutes) });
+        // Success: consume the code so it can't be reused. The "verified" fact is recorded on the session.
         cache.Remove(key);
-
         return Task.FromResult(Result.Success());
-    }
-
-    public Task<bool> IsVerifiedAsync(string email, CancellationToken cancellationToken) =>
-        Task.FromResult(cache.TryGetValue(VerifiedKey(email), out bool verified) && verified);
-
-    public Task ConsumeVerifiedAsync(string email, CancellationToken cancellationToken)
-    {
-        cache.Remove(VerifiedKey(email));
-        cache.Remove(OtpKey(email));
-        return Task.CompletedTask;
     }
 
     private void Save(string key, OtpEntry entry) =>
         cache.Set(key, entry, new MemoryCacheEntryOptions { AbsoluteExpiration = entry.TrackingExpiryUtc });
 
     private static string OtpKey(string email) => $"registration:otp:{email}";
-    private static string VerifiedKey(string email) => $"registration:otp-verified:{email}";
 
     private static byte[] HashCode(string code) => SHA256.HashData(Encoding.UTF8.GetBytes(code));
 

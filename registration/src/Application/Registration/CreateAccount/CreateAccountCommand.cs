@@ -5,16 +5,10 @@ using Registration.Domain.Common;
 namespace Registration.Application.Registration.CreateAccount;
 
 /// <summary>
-/// Create the portal user (registration flow). The email is the User ID / username. Carries the
-/// personal information collected on the registration screen plus the chosen password. Requires the
-/// email to have been verified via OTP first.
+/// Final step: create the portal user from a verified registration session. The email (the User ID /
+/// username) and personal information come from the session; the client supplies only the password.
 /// </summary>
 public sealed record CreateAccountCommand(
-    string FirstName,
-    string LastName,
-    DateOnly DateOfBirth,
-    string ZipCode,
-    string Email,
-    string? ContactNumber,
+    Guid RegistrationId,
     string Password,
     string ConfirmPassword) : IRequest<Result<CreateAccountResult>>;

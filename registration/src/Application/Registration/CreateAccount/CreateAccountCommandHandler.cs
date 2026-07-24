@@ -1,6 +1,5 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
-using Registration.Application.Common;
 using Registration.Application.Common.Interfaces;
 using Registration.Application.Common.Models;
 using Registration.Domain.Common;
@@ -9,15 +8,16 @@ using Registration.Domain.Registration;
 namespace Registration.Application.Registration.CreateAccount;
 
 /// <summary>
-/// Creates the portal user in the registration database. Enforces (in order): the email must be
-/// OTP-verified, the email must not already exist (duplicate check), then hashes the password with the
-/// configured best-practice scheme and inserts the user — email as username — with the personal
-/// information from the registration screen.
+/// Promotes a verified registration session into a real portal user, then deletes the session.
+/// Enforces (in order): the session must exist and be unexpired, its email must be verified, and the
+/// email must not already be registered. The password is hashed with the configured best-practice
+/// scheme; the personal information is taken from the session (the server, not the client).
 /// </summary>
 public sealed class CreateAccountCommandHandler(
-    IOtpService otpService,
-    IUserRegistrationRepository repository,
+    IPendingRegistrationRepository pendingRepository,
+    IUserRegistrationRepository userRepository,
     IPasswordHasher passwordHasher,
+    TimeProvider timeProvider,
     ILogger<CreateAccountCommandHandler> logger)
     : IRequestHandler<CreateAccountCommand, Result<CreateAccountResult>>
 {
@@ -25,37 +25,42 @@ public sealed class CreateAccountCommandHandler(
         CreateAccountCommand request,
         CancellationToken cancellationToken)
     {
-        var email = EmailNormalizer.Normalize(request.Email);
+        var session = await pendingRepository.GetAsync(request.RegistrationId, cancellationToken);
+        if (session is null || session.IsExpired(timeProvider.GetUtcNow()))
+        {
+            return RegistrationErrors.SessionNotFoundOrExpired;
+        }
 
-        if (!await otpService.IsVerifiedAsync(email, cancellationToken))
+        if (!session.EmailVerified)
         {
             return RegistrationErrors.EmailNotVerified;
         }
 
-        if (await repository.EmailExistsAsync(email, cancellationToken))
+        if (await userRepository.EmailExistsAsync(session.Email, cancellationToken))
         {
             return RegistrationErrors.EmailAlreadyRegistered;
         }
 
         var (hash, salt) = passwordHasher.Hash(request.Password);
 
-        var userId = await repository.CreateUserAsync(
+        var userId = await userRepository.CreateUserAsync(
             new NewUserRegistration(
-                Email: email,
-                Username: email,
+                Email: session.Email,
+                Username: session.Email,
                 PasswordHash: hash,
                 PasswordSalt: salt,
-                FirstName: request.FirstName.Trim(),
-                LastName: request.LastName.Trim(),
-                DateOfBirth: request.DateOfBirth,
-                ZipCode: request.ZipCode.Trim(),
-                ContactNumber: string.IsNullOrWhiteSpace(request.ContactNumber) ? null : request.ContactNumber.Trim()),
+                FirstName: session.FirstName,
+                LastName: session.LastName,
+                DateOfBirth: session.DateOfBirth,
+                ZipCode: session.ZipCode,
+                ContactNumber: session.ContactNumber),
             cancellationToken);
 
-        // One-time use: clear the verification so the same verified state can't create another account.
-        await otpService.ConsumeVerifiedAsync(email, cancellationToken);
+        // The session is single-use: remove it once the account exists.
+        await pendingRepository.DeleteAsync(session.Id, cancellationToken);
 
-        logger.LogInformation("Created portal user {UserId}.", userId);
-        return new CreateAccountResult(userId, email, email);
+        logger.LogInformation("Created portal user {UserId} from registration session {RegistrationId}.",
+            userId, session.Id);
+        return new CreateAccountResult(userId, session.Email, session.Email);
     }
 }

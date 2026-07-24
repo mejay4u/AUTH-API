@@ -8,6 +8,11 @@ namespace Registration.Domain.Registration;
 /// </summary>
 public static class RegistrationErrors
 {
+    // --- Registration session ---
+    public static readonly Error SessionNotFoundOrExpired = Error.Validation(
+        "Registration.SessionNotFoundOrExpired",
+        "The registration session was not found or has expired. Please start again.");
+
     // --- Account creation ---
     public static readonly Error EmailAlreadyRegistered = Error.Conflict(
         "Registration.EmailAlreadyRegistered",
