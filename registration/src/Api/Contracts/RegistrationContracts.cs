@@ -2,38 +2,31 @@ using Registration.Application.Common.Models;
 
 namespace Registration.Api.Contracts;
 
-/// <summary>
-/// Step 1: open a registration session with the personal information from the registration screen.
-/// <c>DateOfBirth</c> is an ISO date (yyyy-MM-dd). <c>ContactNumber</c> is optional.
-/// </summary>
-public sealed record StartRegistrationRequest(
+/// <summary>Descope user-sync webhook payload (registration/profile update pushed to us).</summary>
+public sealed record DescopeUserSyncRequest(
+    string DescopeUserId,
+    string Email,
     string FirstName,
     string LastName,
-    DateOnly DateOfBirth,
-    string ZipCode,
-    string Email,
+    DateOnly? DateOfBirth,
+    string? ZipCode,
     string? ContactNumber);
 
-/// <summary>Response to <c>start</c> — the session id used by the remaining steps.</summary>
-public sealed record StartRegistrationResponse(Guid RegistrationId)
+/// <summary>JIT verify hook payload — Descope sends the credentials for a legacy first login.</summary>
+public sealed record DescopeVerifyRequest(string Email, string Password);
+
+/// <summary>Response to the verify hook — the member profile Descope should adopt.</summary>
+public sealed record DescopeVerifyResponse(
+    bool Verified,
+    Guid UserId,
+    string Email,
+    string FirstName,
+    string LastName,
+    string Origin)
 {
-    public static StartRegistrationResponse From(StartRegistrationResult r) => new(r.RegistrationId);
+    public static DescopeVerifyResponse From(MemberProfile p) =>
+        new(true, p.UserId, p.Email, p.FirstName, p.LastName, p.Origin);
 }
 
-/// <summary>Resend the verification code for a session.</summary>
-public sealed record ResendOtpRequest(Guid RegistrationId);
-
-/// <summary>Verify the emailed code for a session.</summary>
-public sealed record VerifyOtpRequest(Guid RegistrationId, string Code);
-
-/// <summary>Create the account from a verified session — the client supplies only the password.</summary>
-public sealed record CreateAccountRequest(Guid RegistrationId, string Password, string ConfirmPassword);
-
-/// <summary>Generic success message for the OTP endpoints.</summary>
+/// <summary>Generic success message.</summary>
 public sealed record MessageResponse(string Message);
-
-/// <summary>Response returned when an account is created.</summary>
-public sealed record CreateAccountResponse(Guid UserId, string Email, string Username)
-{
-    public static CreateAccountResponse From(CreateAccountResult r) => new(r.UserId, r.Email, r.Username);
-}

@@ -19,6 +19,11 @@ public static class DependencyInjection
         // Feature flags (config section "FeatureManagement"), used to gate the registration endpoints.
         services.AddFeatureManagement();
 
+        // HMAC verification settings for inbound Descope calls.
+        services.AddOptions<DescopeOptions>()
+            .Bind(configuration.GetSection(DescopeOptions.SectionName))
+            .ValidateOnStart();
+
         AddRateLimiting(services, configuration);
         AddCors(services, configuration);
         AddSwagger(services);

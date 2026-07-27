@@ -40,6 +40,9 @@ app.UseCors(Registration.Api.DependencyInjection.CorsPolicyName);
 
 app.UseRateLimiter();
 
+// Verify the HMAC signature on inbound Descope calls (/descope/*) before they reach a handler.
+app.UseDescopeSignatureVerification();
+
 app.MapRegistrationEndpoints();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))

@@ -1,46 +1,37 @@
 @host = https://localhost:7202
-# After /start, copy the returned registrationId into @regId below.
-@regId = 00000000-0000-0000-0000-000000000000
+# Development skips signature verification (Descope:Enabled=false) so these can be called directly.
+# In other environments, Descope signs these calls and DescopeSignatureMiddleware verifies the HMAC.
 
-### 1) Start registration (Step 1: personal info). Returns { registrationId }.
-### In Development the OTP is written to the console.
-POST {{host}}/api/v1/registration/start
+### JIT verify — legacy user's first login (mock accepts these dev credentials)
+POST {{host}}/api/v1/registration/descope/verify
 Content-Type: application/json
 
 {
-  "firstName": "John",
-  "lastName": "Doe",
+  "email": "legacy.user@example.com",
+  "password": "Legacy#123"
+}
+
+### JIT verify — wrong credentials → 401
+POST {{host}}/api/v1/registration/descope/verify
+Content-Type: application/json
+
+{
+  "email": "legacy.user@example.com",
+  "password": "wrong"
+}
+
+### Sync a Descope-registered user (idempotent upsert)
+POST {{host}}/api/v1/registration/descope/users
+Content-Type: application/json
+
+{
+  "descopeUserId": "U2abc123",
+  "email": "jane.roe@gmail.com",
+  "firstName": "Jane",
+  "lastName": "Roe",
   "dateOfBirth": "1990-05-15",
   "zipCode": "12345",
-  "email": "john.doe@gmail.com",
   "contactNumber": "123-456-7890"
-}
-
-### 1b) Resend the code (subject to the 60s cooldown + per-email cap)
-POST {{host}}/api/v1/registration/otp/resend
-Content-Type: application/json
-
-{
-  "registrationId": "{{regId}}"
-}
-
-### 2) Verify the OTP (use the code from the console log)
-POST {{host}}/api/v1/registration/otp/verify
-Content-Type: application/json
-
-{
-  "registrationId": "{{regId}}",
-  "code": "123456"
-}
-
-### 3) Create the account (only the password — personal info comes from the session)
-POST {{host}}/api/v1/registration/account
-Content-Type: application/json
-
-{
-  "registrationId": "{{regId}}",
-  "password": "Str0ng!Pass",
-  "confirmPassword": "Str0ng!Pass"
 }
 
 ### Health

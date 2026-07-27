@@ -1,91 +1,81 @@
-# Member Registration API
+# Registration / Identity Profile Service
 
-A **new, standalone .NET 8** service (Clean Architecture) that backs the portal sign-up flow:
-**email OTP verification** and **user account creation**. It is intentionally separate from the
-existing Auth/login service — the **only** thing they share is the **existing user database**.
+A **standalone .NET 8** service (Clean Architecture) that is the **profile / identity system of record**
+for the member portal. **Descope owns authentication, passwords, hashing, and the registration/email
+wizard** — this service stores **no password material**. It exists to:
+
+1. **Receive users Descope pushes** to us (registration / profile updates) — the sync webhook.
+2. **JIT-migrate legacy users** on first login — Descope's verify hook calls us; we verify against the
+   legacy system and create the profile so Descope takes over the password. Current users aren't disturbed.
 
 ```
 registration/
   src/
-    Domain/          Result/Error primitives, RegistrationErrors, User, PendingRegistration. No dependencies.
-    Application/     CQRS use cases (StartRegistration, ResendOtp, VerifyOtp, CreateAccount), FluentValidation, interfaces, options.
-    Infrastructure/  EF Core DbContext (database-first), PBKDF2 hasher, cache-backed OTP service, SMTP/dev email senders.
-    Api/             Minimal-API endpoints, ProblemDetails, rate limiting, feature flag, Swagger.
+    Domain/          Result/Error, User (passwordless) + UserOrigin, MigrationAudit, RegistrationErrors.
+    Application/     CQRS use cases (SyncDescopeUser, VerifyLegacyLogin), FluentValidation, interfaces, models.
+    Infrastructure/  EF Core DbContext (database-first), EF repositories, legacy verifier (HTTP + dev mock).
+    Api/             Minimal-API endpoints, Descope HMAC signature middleware, ProblemDetails, rate limiting, Swagger.
   tests/
-    Registration.UnitTests/  xUnit tests (validators, OTP service, handlers, EF repositories, hasher).
+    Registration.UnitTests/  xUnit tests (handlers, validators, EF repository).
 ```
 
 Dependencies point inward: `Api → Infrastructure → Application → Domain`.
 
-## Flow & endpoints
+## Endpoints (Descope calls these, machine-to-machine)
 
-The pre-account steps run against a **server-side registration session** (`PendingRegistration`) so the
-server, not the client, owns the in-progress registration. `start` opens the session, `verify` flips its
-email-verified flag, and `account` promotes it to a real `User` and deletes it. Steps after account
-creation (plan linking) operate on the created user.
+| Method | Route                                   | Purpose                                                             |
+|--------|-----------------------------------------|---------------------------------------------------------------------|
+| POST   | `/api/v1/registration/descope/users`    | Idempotent upsert of a user Descope pushed (registration/update)    |
+| POST   | `/api/v1/registration/descope/verify`   | JIT verify a legacy member on first login → profile (Descope hook)  |
+| GET    | `/health`                               | Health probe                                                        |
 
-| Method | Route                              | Purpose                                                              |
-|--------|------------------------------------|---------------------------------------------------------------------|
-| POST   | `/api/v1/registration/start`       | Submit personal info → open a session + email a code → `registrationId` |
-| POST   | `/api/v1/registration/otp/resend`  | Resend the code (60s cooldown, per-email cap enforced)              |
-| POST   | `/api/v1/registration/otp/verify`  | Verify the emailed code for the session                             |
-| POST   | `/api/v1/registration/account`     | Create the user from the verified session (email = username)        |
-| GET    | `/health`                          | Health probe                                                        |
+All `/descope/*` calls are **HMAC-signature verified** (`DescopeSignatureMiddleware`) and gated by the
+**`Registration` feature flag**. Signature failure → 401 before the handler runs.
 
-The whole surface is gated by the **`Registration` feature flag** (`FeatureManagement:Registration`);
-when disabled every endpoint returns 404.
+## JIT (lazy) migration flow
+1. A legacy user logs in through Descope for the first time.
+2. Descope calls `POST /descope/verify` with the credentials (HMAC-signed).
+3. We look up our DB by email → **already known** → return the profile. Otherwise call the **legacy verify
+   API** (`ILegacyMemberVerifier`), which verifies the salted **SHA-256/512** password *inside the legacy
+   system* and returns the profile.
+4. On success we create a `User` (`Origin = Migrated`, `LegacyMemberId`, `MigratedUtc`) and write a
+   `MigrationAudit` row; Descope stores the password thereafter. On failure → 401 + audit. **We never
+   hash or store a password.**
 
 ## Running it (Development)
-
 ```bash
 dotnet run --project registration/src/Api/Registration.Api.csproj
 ```
+Development uses the **EF Core InMemory** provider, **skips signature verification** (`Descope:Enabled=false`),
+and uses the **mock legacy verifier** (accepts `legacy.user@example.com` / `Legacy#123`). So you can call
+`/descope/verify` and `/descope/users` straight from Swagger (`/swagger`). See [`requests.http`](requests.http).
 
-In **Development** it uses the **EF Core InMemory provider** and a **logging email sender** (the OTP is
-written to the console instead of emailed), so the full flow runs with no database or SMTP server.
-Swagger is served at `/swagger`.
+## Database (database-first, `registration` schema)
+- `registration.Users` — profile system of record; **no password columns**. Email/username unique;
+  `DescopeUserId` uniquely indexed when present; `Origin` = `Registration` | `Migrated`; `LegacyMemberId`,
+  `MigratedUtc` for provenance.
+- `registration.MigrationAudit` — append-only JIT audit.
 
-Typical flow: `POST /start` → grab the code from the console log → `POST /otp/verify` (with the
-`registrationId`) → `POST /account`. See [`requests.http`](requests.http).
+DDL: [`scripts/create-registration-user-table.sql`](scripts/create-registration-user-table.sql). EF maps
+to it (no app migrations).
 
-## Key behaviours
-
-- **Email is the username / User ID.**
-- **Full personal information persisted** from the registration screen: first name, last name, date
-  of birth, ZIP code, email, and optional contact number — all server-validated on account creation.
-- **Age gate:** applicants must be **16 or older** (validated from date of birth).
-- **Server-side registration session** (`registration.PendingRegistrations`): personal info + verified
-  flag live on the server between steps; account creation promotes the session to a `User` and deletes
-  it. Sessions carry an `ExpiresUtc` (configurable `Registration:SessionLifetimeMinutes`, default 60);
-  a scheduled `DELETE` purges abandoned ones (see the DDL script).
-- **Own database, database-first EF Core:** `RegistrationDbContext` maps the `User` entity to the
-  `registration.Users` table whose schema is authored in SQL (`scripts/create-registration-user-table.sql`)
-  — EF maps to it and does **not** own migrations. A **unique index on email/username** is the real
-  duplicate guard.
-- **Best-practice password hashing:** PBKDF2 (HMAC-SHA256, random per-password salt), behind
-  `IPasswordHasher` so the scheme (`PasswordHashing:Scheme`) can be swapped (Argon2id/BCrypt) later.
-- **Server-side validation is the source of truth:** FluentValidation → RFC 7807
-  `ValidationProblemDetails` (400) listing exactly what is required.
-- **Duplicate email**, checked early and late: at **start** a code is not issued for an already-
-  registered email in an **enumeration-safe** way (a `registrationId` is still returned, so existence
-  isn't revealed), and again at **account creation** → 409 Conflict. A **unique DB index** on
-  email/username is the final guard.
-- **OTP:** 6-digit code, stored only as a SHA-256 hash, with expiry, a wrong-guess attempt cap, a
-  60s resend cooldown, and a configurable per-email request cap (default 10). State lives in a
-  cache — **no new tables**.
-- **Configurable everywhere** via options (`PasswordPolicy`, `Otp`, `PasswordHashing`, `Smtp`,
-  `RateLimiting`, `Cors`), validated on startup.
+## Configuration
+- `Database:Provider` + `ConnectionStrings:RegistrationDb` — our own DB.
+- `Descope:*` — `SigningSecret` (Key Vault), timestamp tolerance, header names, `Enabled`.
+- `LegacyVerifyApi:*` — `BaseUrl`, `ApiKey`, `UseMock`.
+- `FeatureManagement:Registration`, `RateLimiting`, `Cors`.
 
 ## Going to production
+1. Run the DDL against the registration DB; set `Database:Provider=SqlServer` + `ConnectionStrings:RegistrationDb`.
+2. Set the real `Descope:SigningSecret` and align the signature header/payload format with your Descope
+   webhook config; leave `Descope:Enabled=true`. Consider IP-allowlisting Descope's egress ranges.
+3. Point `LegacyVerifyApi:BaseUrl`/`ApiKey` at the legacy verify API and set `UseMock=false`.
 
-1. Create the schema by running [`scripts/create-registration-user-table.sql`](scripts/create-registration-user-table.sql)
-   against the registration database (database-first — EF maps to it, it does not create it). Then set
-   `Database:Provider=SqlServer` and `ConnectionStrings:RegistrationDb`. Because this is registration's
-   **own** database, whatever authenticates these users reads from **this** DB.
-2. Configure the real `Smtp` settings (host/port/TLS/credentials/from) via secrets/Key Vault.
-3. Set real `Cors:AllowedOrigins`, serve over HTTPS, and tune `PasswordHashing:Iterations`.
+## Ownership at a glance
+- **Descope:** authN, sessions, passwords/hashing, the registration + email wizard, CSR impersonation.
+- **This service:** profile system of record, Descope→us sync, JIT migration + audit.
+- **Legacy system:** verifies legacy credentials (salted SHA-256/512) during migration only.
 
-## Deferred (future phases)
-
-Remaining wizard steps, audit trail, language preference, and the full hybrid existing-member
-enrollment verification are intentionally out of this first slice.
+## Related
+The **member-experience / authorization** design (dashboard, view switching, LOB/plan/role views, CSR,
+consent, Facets) is a separate concern — see [`docs/member-experience-architecture.md`](docs/member-experience-architecture.md).
