@@ -5,41 +5,40 @@ namespace Registration.Domain.Registration;
 /// <summary>
 /// The catalogue of expected, business-rule errors returned by the registration use cases.
 /// Each maps to a specific HTTP status via <see cref="ErrorType"/>, keeping the handlers exception-free.
+/// The descriptions surface to the member through the Descope flow, so they are written to be read by
+/// one — and deliberately reveal nothing about Facets, tenants, or why a match failed.
 /// </summary>
 public static class RegistrationErrors
 {
-    // --- Registration session ---
-    public static readonly Error SessionNotFoundOrExpired = Error.Validation(
-        "Registration.SessionNotFoundOrExpired",
-        "The registration session was not found or has expired. Please start again.");
+    // --- Pending registration record ---
+    public static readonly Error RegistrationNotFoundOrExpired = Error.Validation(
+        "Registration.NotFoundOrExpired",
+        "The registration was not found or has expired. Please start again.");
 
-    // --- Account creation ---
     public static readonly Error EmailAlreadyRegistered = Error.Conflict(
         "Registration.EmailAlreadyRegistered",
         "An account with this email address already exists.");
 
-    public static readonly Error EmailNotVerified = Error.Conflict(
-        "Registration.EmailNotVerified",
-        "The email address must be verified before an account can be created.");
+    // --- Password ---
+    public static readonly Error PasswordNotSet = Error.Conflict(
+        "Registration.PasswordNotSet",
+        "A password must be set before registration can be completed.");
 
-    // --- OTP ---
-    public static readonly Error OtpInvalid = Error.Validation(
-        "Registration.OtpInvalid",
-        "The verification code is incorrect.");
+    // --- Eligibility (Facets) ---
+    public static readonly Error MemberNotFound = Error.Validation(
+        "Registration.MemberNotFound",
+        "We couldn't match those details to a member record. Check them and try again.");
 
-    public static readonly Error OtpExpiredOrNotFound = Error.Validation(
-        "Registration.OtpExpiredOrNotFound",
-        "The verification code has expired or was never issued. Request a new code.");
+    /// <summary>
+    /// Deliberately identical in code and wording to <see cref="MemberNotFound"/>: telling the caller
+    /// that a member *was* found but the details didn't line up would confirm the SSN belongs to
+    /// someone. The distinction is kept in the logs, not in the response.
+    /// </summary>
+    public static readonly Error MemberDetailsMismatch = Error.Validation(
+        "Registration.MemberNotFound",
+        "We couldn't match those details to a member record. Check them and try again.");
 
-    public static readonly Error OtpTooManyAttempts = Error.TooManyRequests(
-        "Registration.OtpTooManyAttempts",
-        "Too many incorrect attempts for this code. Request a new code.");
-
-    public static readonly Error OtpResendTooSoon = Error.TooManyRequests(
-        "Registration.OtpResendTooSoon",
-        "A verification code was requested recently. Please wait before requesting another.");
-
-    public static readonly Error OtpRequestLimitReached = Error.TooManyRequests(
-        "Registration.OtpRequestLimitReached",
-        "The maximum number of verification codes for this email has been reached.");
+    public static readonly Error EligibilityLookupFailed = Error.Failure(
+        "Registration.EligibilityLookupFailed",
+        "We couldn't verify your membership right now. Please try again shortly.");
 }

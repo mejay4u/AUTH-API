@@ -1,14 +1,20 @@
 namespace Registration.Domain.Registration;
 
 /// <summary>
-/// A server-side registration session for the pre-account steps of the onboarding wizard. Holds the
-/// personal information collected on Step 1 and whether the email has been verified, until the account
-/// is created (Step 4) — at which point it is promoted to a <c>User</c> and deleted. Lives in the
-/// registration database so the server, not the client, is the source of truth for the in-progress
-/// registration.
+/// The member record while registration is in progress — the "Pending" state of the sequence diagram.
+/// Created by <c>initiateRegistration</c> once Descope has verified the email, gains a password hash at
+/// the password step, and is promoted to a <see cref="Users.User"/> by <c>completeRegistration</c> after
+/// eligibility is confirmed, at which point it is deleted.
 /// </summary>
+/// <remarks>
+/// There is no <c>EmailVerified</c> flag any more. Descope owns email verification: it only calls
+/// <c>initiateRegistration</c> after validating the OTP, so a record existing here already means the
+/// address was verified. That guarantee is only as strong as the connector credential on the call —
+/// see <c>ConnectorAuthOptions</c>.
+/// </remarks>
 public class PendingRegistration
 {
+    /// <summary>Also becomes the created user's id, so the ID Descope receives never changes.</summary>
     public Guid Id { get; set; }
 
     public string Email { get; set; } = string.Empty;
@@ -21,13 +27,19 @@ public class PendingRegistration
 
     public string ZipCode { get; set; } = string.Empty;
 
-    public string? ContactNumber { get; set; }
+    /// <summary>Null until the password step; never the plaintext password.</summary>
+    public string? PasswordHash { get; set; }
 
-    public bool EmailVerified { get; set; }
+    /// <summary>Null until the password step.</summary>
+    public string? PasswordSalt { get; set; }
 
     public DateTime CreatedUtc { get; set; }
 
     public DateTime ExpiresUtc { get; set; }
+
+    /// <summary>True once the password step has run — required before registration can complete.</summary>
+    public bool HasPassword =>
+        !string.IsNullOrEmpty(PasswordHash) && !string.IsNullOrEmpty(PasswordSalt);
 
     public bool IsExpired(DateTimeOffset now) => now.UtcDateTime > ExpiresUtc;
 }

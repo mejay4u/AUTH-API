@@ -2,21 +2,21 @@ using FluentValidation;
 using Microsoft.Extensions.Options;
 using Registration.Application.Common.Options;
 
-namespace Registration.Application.Registration.CreateAccount;
+namespace Registration.Application.Registration.SetPassword;
 
 /// <summary>
-/// Server-side, authoritative validation for account creation. Reads the configurable
-/// <see cref="PasswordPolicyOptions"/> so the password rules change via config, never code. Personal
-/// information was validated when the session was opened (StartRegistration).
+/// Server-side, authoritative password validation. Reads the configurable
+/// <see cref="PasswordPolicyOptions"/> so the rules change via config, never code — and so the
+/// checklist the app shows while typing can be kept honest against the same source.
 /// </summary>
-public sealed class CreateAccountCommandValidator : AbstractValidator<CreateAccountCommand>
+public sealed class SetPasswordCommandValidator : AbstractValidator<SetPasswordCommand>
 {
-    public CreateAccountCommandValidator(IOptions<PasswordPolicyOptions> options)
+    public SetPasswordCommandValidator(IOptions<PasswordPolicyOptions> options)
     {
         var policy = options.Value;
 
-        RuleFor(x => x.RegistrationId)
-            .NotEmpty().WithMessage("A registration session id is required.");
+        RuleFor(x => x.UserId)
+            .NotEmpty().WithMessage("A registration id is required.");
 
         RuleFor(x => x.Password)
             .NotEmpty().WithMessage("Password is required.")

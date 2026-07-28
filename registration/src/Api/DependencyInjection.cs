@@ -19,11 +19,22 @@ public static class DependencyInjection
         // Feature flags (config section "FeatureManagement"), used to gate the registration endpoints.
         services.AddFeatureManagement();
 
+        AddConnectorAuth(services, configuration);
         AddRateLimiting(services, configuration);
         AddCors(services, configuration);
         AddSwagger(services);
 
         return services;
+    }
+
+    private static void AddConnectorAuth(IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddOptions<ConnectorAuthOptions>()
+            .Bind(configuration.GetSection(ConnectorAuthOptions.SectionName))
+            .Validate(
+                options => options.AllowAnonymous || options.Keys.Any(k => !string.IsNullOrWhiteSpace(k)),
+                "ConnectorAuth:Keys must contain at least one key unless ConnectorAuth:AllowAnonymous is true.")
+            .ValidateOnStart();
     }
 
     private static void AddRateLimiting(IServiceCollection services, IConfiguration configuration)
@@ -34,6 +45,9 @@ public static class DependencyInjection
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
+            // Partitioned by caller IP. Note that every call now arrives from Descope, so this is a
+            // blunt instrument — it protects the service from a runaway connector, not one member from
+            // another. Per-member limits belong in the flow.
             options.AddPolicy(RateLimiterPolicies.Registration, httpContext =>
             {
                 var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
@@ -50,6 +64,8 @@ public static class DependencyInjection
 
     private static void AddCors(IServiceCollection services, IConfiguration configuration)
     {
+        // Kept for the health/swagger surface; the registration endpoints are server-to-server and
+        // never preflighted by a browser.
         var origins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 
         services.AddCors(options => options.AddPolicy(CorsPolicy, policy =>
@@ -73,7 +89,9 @@ public static class DependencyInjection
             {
                 Title = "Member Registration API",
                 Version = "v1",
-                Description = "Email-OTP verification and portal user creation for the Member Portal."
+                Description =
+                    "Backend for the Descope registration flow: creates the member record, stores the "
+                    + "password, and confirms eligibility against Facets."
             });
         });
     }

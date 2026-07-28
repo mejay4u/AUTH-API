@@ -1,91 +1,152 @@
 # Member Registration API
 
-A **new, standalone .NET 8** service (Clean Architecture) that backs the portal sign-up flow:
-**email OTP verification** and **user account creation**. It is intentionally separate from the
-existing Auth/login service — the **only** thing they share is the **existing user database**.
+A **standalone .NET 8** service (Clean Architecture) that backs the portal sign-up flow. It is
+intentionally separate from the Auth/login service.
+
+**It is a BFF for a Descope flow, not a public API.** Registration runs as a Descope Flow — the
+"passthru" model — and the **Descope engine** calls this service server-to-server through its HTTP
+connectors. The mobile app never calls these endpoints; it only renders the flow's screens.
+
+The division of labour:
+
+| | Descope | This service |
+| --- | --- | --- |
+| Owns | the email address (login ID), the flow and its state, the OTP, the session JWT | the member record, the **password**, eligibility |
+| Does | collects input, verifies the OTP, calls us, mints an enriched JWT | stores the record, hashes the password, matches the member in Facets |
+| Never sees | the password | — |
 
 ```
 registration/
   src/
     Domain/          Result/Error primitives, RegistrationErrors, User, PendingRegistration. No dependencies.
-    Application/     CQRS use cases (StartRegistration, ResendOtp, VerifyOtp, CreateAccount), FluentValidation, interfaces, options.
-    Infrastructure/  EF Core DbContext (database-first), PBKDF2 hasher, cache-backed OTP service, SMTP/dev email senders.
-    Api/             Minimal-API endpoints, ProblemDetails, rate limiting, feature flag, Swagger.
+    Application/     CQRS use cases (InitiateRegistration, SetPassword, CompleteRegistration), FluentValidation, interfaces, options.
+    Infrastructure/  EF Core DbContext (database-first), PBKDF2 hasher, Facets client. 
+    Api/             Minimal-API endpoints, connector auth, ProblemDetails, rate limiting, feature flag, Swagger.
   tests/
-    Registration.UnitTests/  xUnit tests (validators, OTP service, handlers, EF repositories, hasher).
+    Registration.UnitTests/  xUnit tests (validators, handlers, EF repositories, hasher).
 ```
 
 Dependencies point inward: `Api → Infrastructure → Application → Domain`.
 
-## Flow & endpoints
+## The flow, and the three calls into this service
 
-The pre-account steps run against a **server-side registration session** (`PendingRegistration`) so the
-server, not the client, owns the in-progress registration. `start` opens the session, `verify` flips its
-email-verified flag, and `account` promotes it to a real `User` and deletes it. Steps after account
-creation (plan linking) operate on the created user.
+Phase numbers match the sequence diagram.
 
-| Method | Route                              | Purpose                                                              |
-|--------|------------------------------------|---------------------------------------------------------------------|
-| POST   | `/api/v1/registration/start`       | Submit personal info → open a session + email a code → `registrationId` |
-| POST   | `/api/v1/registration/otp/resend`  | Resend the code (60s cooldown, per-email cap enforced)              |
-| POST   | `/api/v1/registration/otp/verify`  | Verify the emailed code for the session                             |
-| POST   | `/api/v1/registration/account`     | Create the user from the verified session (email = username)        |
-| GET    | `/health`                          | Health probe                                                        |
+**Phase 1 (Descope only).** The member enters email, name, date of birth and ZIP into the flow's
+screens. Descope holds them in flow state and emails an OTP. We are not involved.
 
-The whole surface is gated by the **`Registration` feature flag** (`FeatureManagement:Registration`);
-when disabled every endpoint returns 404.
+**Phase 2 — `POST /api/initiateRegistration`.** Descope validates the OTP, *then* calls us with the
+details. We create the member record in **Pending** state and return its `userId`. Descope creates its
+own passwordless shadow record (email only) after we succeed, so our record leads and Descope follows.
 
-## Running it (Development)
-
-```bash
-dotnet run --project registration/src/Api/Registration.Api.csproj
+```jsonc
+// request
+{ "email": "jane@example.com", "firstName": "Jane", "lastName": "Member",
+  "dateOfBirth": "1985-04-23", "zipCode": "12345" }
+// 200
+{ "userId": "8f3c…", "email": "jane@example.com", "status": "Pending" }
 ```
 
-In **Development** it uses the **EF Core InMemory provider** and a **logging email sender** (the OTP is
-written to the console instead of emailed), so the full flow runs with no database or SMTP server.
-Swagger is served at `/swagger`.
+A member who abandons the flow and starts again gets the **same** record back rather than a
+duplicate-key error; an expired one is replaced. An email that already has a full account is a `409`.
 
-Typical flow: `POST /start` → grab the code from the console log → `POST /otp/verify` (with the
-`registrationId`) → `POST /account`. See [`requests.http`](requests.http).
+> There is no `emailVerified` flag anywhere in this service. Descope only calls us after verifying the
+> OTP, so a record existing here already means the address was verified — a guarantee that rests
+> entirely on the connector credential below.
 
-## Key behaviours
+**Phase 3 — `POST /api/registration/password`.** The password, hashed with PBKDF2 and stored against
+the pending record. Descope never receives it, which is why sign-in has to be validated against this
+database.
 
-- **Email is the username / User ID.**
-- **Full personal information persisted** from the registration screen: first name, last name, date
-  of birth, ZIP code, email, and optional contact number — all server-validated on account creation.
-- **Age gate:** applicants must be **16 or older** (validated from date of birth).
-- **Server-side registration session** (`registration.PendingRegistrations`): personal info + verified
-  flag live on the server between steps; account creation promotes the session to a `User` and deletes
-  it. Sessions carry an `ExpiresUtc` (configurable `Registration:SessionLifetimeMinutes`, default 60);
-  a scheduled `DELETE` purges abandoned ones (see the DDL script).
-- **Own database, database-first EF Core:** `RegistrationDbContext` maps the `User` entity to the
-  `registration.Users` table whose schema is authored in SQL (`scripts/create-registration-user-table.sql`)
-  — EF maps to it and does **not** own migrations. A **unique index on email/username** is the real
-  duplicate guard.
-- **Best-practice password hashing:** PBKDF2 (HMAC-SHA256, random per-password salt), behind
-  `IPasswordHasher` so the scheme (`PasswordHashing:Scheme`) can be swapped (Argon2id/BCrypt) later.
-- **Server-side validation is the source of truth:** FluentValidation → RFC 7807
-  `ValidationProblemDetails` (400) listing exactly what is required.
-- **Duplicate email**, checked early and late: at **start** a code is not issued for an already-
-  registered email in an **enumeration-safe** way (a `registrationId` is still returned, so existence
-  isn't revealed), and again at **account creation** → 409 Conflict. A **unique DB index** on
-  email/username is the final guard.
-- **OTP:** 6-digit code, stored only as a SHA-256 hash, with expiry, a wrong-guess attempt cap, a
-  60s resend cooldown, and a configurable per-email request cap (default 10). State lives in a
-  cache — **no new tables**.
-- **Configurable everywhere** via options (`PasswordPolicy`, `Otp`, `PasswordHashing`, `Smtp`,
-  `RateLimiting`, `Cors`), validated on startup.
+```jsonc
+{ "userId": "8f3c…", "password": "…", "confirmPassword": "…" }   // -> 200
+```
 
-## Going to production
+The diagram shows this hitting `/api/initiateRegistration` again with a different body; that reads as a
+copy-paste slip, so it has its own route. If it really must share the path, say so and it can be
+folded back.
 
-1. Create the schema by running [`scripts/create-registration-user-table.sql`](scripts/create-registration-user-table.sql)
-   against the registration database (database-first — EF maps to it, it does not create it). Then set
-   `Database:Provider=SqlServer` and `ConnectionStrings:RegistrationDb`. Because this is registration's
-   **own** database, whatever authenticates these users reads from **this** DB.
-2. Configure the real `Smtp` settings (host/port/TLS/credentials/from) via secrets/Key Vault.
-3. Set real `Cors:AllowedOrigins`, serve over HTTPS, and tune `PasswordHashing:Iterations`.
+**Phase 4 — `POST /api/completeRegistration`.** The SSN (and optional member ID) are matched against
+Facets across all tenants. On a match the pending record is promoted to a real `User` — carrying the
+**same id** — and the subscriber and plan come back for Descope to map into the session JWT's custom
+claims.
 
-## Deferred (future phases)
+```jsonc
+// request
+{ "email": "jane@example.com", "ssn": "123-45-6789", "memberId": null }
+// 200
+{ "complete": true, "userId": "8f3c…",
+  "memberInfo": { "subscriberId": "SUB1234", "memberId": "MBR1234", … },
+  "planInfo":   { "planId": "PLN1234", "planName": "…", … } }
+```
 
-Remaining wizard steps, audit trail, language preference, and the full hybrid existing-member
-enrollment verification are intentionally out of this first slice.
+`memberInfo.subscriberId` and `planInfo.planId` are part of the contract with the flow — the connector
+maps those paths into claims, so renaming them means reconfiguring Descope.
+
+## Authentication: the connector key
+
+These endpoints are machine-to-machine. There is no member session token to validate — the caller is
+the Descope engine — so a shared secret in a header is what separates a real connector call from
+anyone who found the URL.
+
+```jsonc
+"ConnectorAuth": {
+  "HeaderName": "X-Connector-Key",
+  "Keys": [ "…" ],          // supply via secrets/Key Vault; two at once allows zero-downtime rotation
+  "AllowAnonymous": false   // development only
+}
+```
+
+Startup fails if neither a key nor `AllowAnonymous` is configured. Comparison is constant-time and does
+not short-circuit on the first match.
+
+This key is load-bearing in a way that is easy to miss: it is the *only* evidence this service has that
+an email address was verified. Treat it like a signing key.
+
+## Eligibility (Facets)
+
+`IFacetsClient` has two implementations, chosen by `Facets:Provider`:
+
+- **`Http`** — the real lookup. ⚠️ Its request/response DTOs were written from the sequence diagram,
+  **not** from a published Facets contract, and are marked provisional in the source. Align them before
+  trusting them; the surrounding behaviour (auth header, timeout, status mapping) holds regardless.
+- **`Stub`** — matches everyone, for walking the flow before that integration exists. Startup **throws**
+  if it is selected outside Development. An SSN ending `0000` returns "not found" so the unhappy path
+  is reachable.
+
+Two failure modes are kept distinct all the way to the caller, because they mean different things to a
+member: *no such member* (their details are wrong) versus *lookup failed* (we're broken, try later).
+
+A Facets match on SSN alone is **not** enough to hand over an account — surname and date of birth must
+also agree with what was registered. A mismatch returns exactly the same error as "not found", so the
+response can't be used to probe whose SSN it is; the real reason is logged.
+
+## Handling of SSN
+
+The full SSN is used for the Facets match and then **discarded**. Only `SsnLast4` is persisted. It is
+never logged, and error responses from the Facets client deliberately omit the response body in case it
+echoes the number back.
+
+## Running it
+
+```bash
+cd registration
+dotnet run --project src/Api            # Development: InMemory DB + Facets stub + dev connector key
+```
+
+`requests.http` walks all three phases in order, including the 401 and not-eligible paths.
+
+For a real database, run `scripts/create-registration-user-table.sql` once, then set
+`Database:Provider = SqlServer` and `ConnectionStrings:RegistrationDb`.
+
+Abandoned pending records need purging on a schedule — the DDL script has the statement. That matters
+more than it looks: `PendingRegistrations.Email` is unique, so an abandoned row holds that address
+until it is removed (the initiate handler clears an expired one it finds, but only when that member
+comes back).
+
+## What is deliberately NOT here
+
+- **OTP and email delivery.** Descope owns both. The previous version of this service generated and
+  mailed its own codes; that is gone.
+- **Sign-in.** Still the Auth API's job. Note that it will not work for members registered this way
+  until password validation is proxied to this database — the password lives here now.

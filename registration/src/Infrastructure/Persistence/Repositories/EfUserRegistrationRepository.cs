@@ -20,7 +20,8 @@ public sealed class EfUserRegistrationRepository(RegistrationDbContext db, TimeP
     {
         var user = new User
         {
-            Id = Guid.NewGuid(),
+            // Reuses the pending record's id so the identifier Descope holds stays valid.
+            Id = registration.Id,
             Email = registration.Email,
             Username = registration.Username,
             PasswordHash = registration.PasswordHash,
@@ -29,7 +30,9 @@ public sealed class EfUserRegistrationRepository(RegistrationDbContext db, TimeP
             LastName = registration.LastName,
             DateOfBirth = registration.DateOfBirth,
             ZipCode = registration.ZipCode,
-            ContactNumber = registration.ContactNumber,
+            SubscriberId = registration.SubscriberId,
+            PlanId = registration.PlanId,
+            SsnLast4 = registration.SsnLast4,
             IsActive = true,
             CreatedUtc = timeProvider.GetUtcNow().UtcDateTime
         };

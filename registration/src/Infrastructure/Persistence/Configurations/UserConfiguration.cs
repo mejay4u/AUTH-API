@@ -5,9 +5,9 @@ using Registration.Domain.Users;
 namespace Registration.Infrastructure.Persistence.Configurations;
 
 /// <summary>
-/// Database-first mapping of <see cref="User"/> onto the existing <c>registration.Users</c> table.
-/// Column names, lengths, keys and the unique indexes match the DDL script exactly — change the SQL
-/// and this mapping together. The Id is application-assigned (<see cref="Guid"/>), not DB-generated.
+/// Database-first mapping of <see cref="User"/> onto the <c>registration.Users</c> table. Column names,
+/// lengths, keys and the unique indexes match the DDL script exactly — change the SQL and this mapping
+/// together. The Id is application-assigned (carried over from the pending record), not DB-generated.
 /// </summary>
 public sealed class UserConfiguration : IEntityTypeConfiguration<User>
 {
@@ -28,7 +28,12 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.LastName).HasMaxLength(100).IsRequired();
         builder.Property(u => u.DateOfBirth).IsRequired();               // maps to SQL 'date'
         builder.Property(u => u.ZipCode).HasMaxLength(10).IsRequired();
-        builder.Property(u => u.ContactNumber).HasMaxLength(20);         // nullable (optional)
+        builder.Property(u => u.ContactNumber).HasMaxLength(20);         // nullable (not collected today)
+
+        // Eligibility, from the Facets match at completion.
+        builder.Property(u => u.SubscriberId).HasMaxLength(50);
+        builder.Property(u => u.PlanId).HasMaxLength(50);
+        builder.Property(u => u.SsnLast4).HasMaxLength(4);
 
         builder.Property(u => u.IsActive).IsRequired();
         builder.Property(u => u.CreatedUtc).IsRequired();

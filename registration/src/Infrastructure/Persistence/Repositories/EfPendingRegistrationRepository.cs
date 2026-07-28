@@ -6,8 +6,8 @@ namespace Registration.Infrastructure.Persistence.Repositories;
 
 /// <summary>
 /// EF Core implementation of <see cref="IPendingRegistrationRepository"/> against the registration
-/// database. Callers treat expired sessions as not usable (they check <c>IsExpired</c>); a scheduled
-/// job purges old rows in bulk (see the DDL script).
+/// database. Callers treat expired records as unusable (they check <c>IsExpired</c>); a scheduled job
+/// purges old rows in bulk (see the DDL script).
 /// </summary>
 public sealed class EfPendingRegistrationRepository(RegistrationDbContext db) : IPendingRegistrationRepository
 {
@@ -21,27 +21,35 @@ public sealed class EfPendingRegistrationRepository(RegistrationDbContext db) : 
     public Task<PendingRegistration?> GetAsync(Guid id, CancellationToken cancellationToken) =>
         db.PendingRegistrations.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
 
-    public async Task MarkEmailVerifiedAsync(Guid id, CancellationToken cancellationToken)
+    public Task<PendingRegistration?> GetByEmailAsync(string email, CancellationToken cancellationToken) =>
+        db.PendingRegistrations.AsNoTracking().FirstOrDefaultAsync(p => p.Email == email, cancellationToken);
+
+    public async Task SetPasswordAsync(
+        Guid id,
+        string passwordHash,
+        string passwordSalt,
+        CancellationToken cancellationToken)
     {
-        var session = await db.PendingRegistrations.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
-        if (session is null)
+        var pending = await db.PendingRegistrations.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+        if (pending is null)
         {
             return;
         }
 
-        session.EmailVerified = true;
+        pending.PasswordHash = passwordHash;
+        pending.PasswordSalt = passwordSalt;
         await db.SaveChangesAsync(cancellationToken);
     }
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken)
     {
-        var session = await db.PendingRegistrations.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
-        if (session is null)
+        var pending = await db.PendingRegistrations.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+        if (pending is null)
         {
             return;
         }
 
-        db.PendingRegistrations.Remove(session);
+        db.PendingRegistrations.Remove(pending);
         await db.SaveChangesAsync(cancellationToken);
     }
 }
