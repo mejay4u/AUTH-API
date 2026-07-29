@@ -6,7 +6,7 @@ IF SCHEMA_ID('registration') IS NULL
     EXEC('CREATE SCHEMA registration');
 GO
 
--- Portal users, created once registration completes (eligibility confirmed against Facets).
+-- Portal users, created when the member sets their password on the last step of the wizard.
 IF OBJECT_ID('registration.Users', 'U') IS NULL
 BEGIN
     CREATE TABLE registration.Users
@@ -21,12 +21,6 @@ BEGIN
         DateOfBirth   DATE             NOT NULL,
         ZipCode       NVARCHAR(10)     NOT NULL,
         ContactNumber NVARCHAR(20)     NULL,
-        -- Eligibility, from the Facets match. SubscriberId and PlanId are what Descope maps into the
-        -- session JWT's custom claims.
-        SubscriberId  NVARCHAR(50)     NULL,
-        PlanId        NVARCHAR(50)     NULL,
-        -- Last four digits only. The full SSN is used to match against Facets and then discarded.
-        SsnLast4      NCHAR(4)         NULL,
         IsActive      BIT              NOT NULL CONSTRAINT DF_registration_Users_IsActive  DEFAULT (1),
         CreatedUtc    DATETIME2(3)     NOT NULL CONSTRAINT DF_registration_Users_CreatedUtc DEFAULT (SYSUTCDATETIME())
     );
@@ -36,8 +30,8 @@ BEGIN
 END
 GO
 
--- In-progress member records: created by initiateRegistration (after Descope verifies the email),
--- given a password hash at the password step, and deleted when promoted to a user.
+-- In-progress registrations: created by initiateRegistration (after Descope verifies the email) and
+-- deleted when promoted to a user.
 IF OBJECT_ID('registration.PendingRegistrations', 'U') IS NULL
 BEGIN
     CREATE TABLE registration.PendingRegistrations
@@ -48,9 +42,7 @@ BEGIN
         LastName      NVARCHAR(100)    NOT NULL,
         DateOfBirth   DATE             NOT NULL,
         ZipCode       NVARCHAR(10)     NOT NULL,
-        -- Null until the password step.
-        PasswordHash  NVARCHAR(512)    NULL,
-        PasswordSalt  NVARCHAR(256)    NULL,
+        ContactNumber NVARCHAR(20)     NULL,
         CreatedUtc    DATETIME2(3)     NOT NULL CONSTRAINT DF_registration_PendingRegistrations_CreatedUtc DEFAULT (SYSUTCDATETIME()),
         ExpiresUtc    DATETIME2(3)     NOT NULL
     );

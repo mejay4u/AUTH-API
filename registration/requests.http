@@ -1,69 +1,58 @@
-### Member Registration API — the three calls Descope's flow connectors make.
-### Run the API in Development (Facets stub + the dev connector key) and send these in order.
+### Member Registration API — the two calls the app makes after Descope has verified the email.
+### Run the API in Development (InMemory DB + Descope:AllowAnonymous) and send these in order.
+### Outside Development every call needs: Authorization: Bearer <Descope session JWT>
 
 @host = https://localhost:7001
-@connectorKey = dev-connector-key
 @email = jane.member@example.com
 
-### Phase 2 — Descope has verified the email; create the pending member record.
+### Step 3 — store the reviewed details, get the pending record's id.
 # Copy `userId` from the response into @userId below.
 POST {{host}}/api/initiateRegistration
 Content-Type: application/json
-X-Connector-Key: {{connectorKey}}
 
 {
   "email": "{{email}}",
   "firstName": "Jane",
   "lastName": "Member",
   "dateOfBirth": "1985-04-23",
-  "zipCode": "12345"
+  "zipCode": "12345",
+  "contactNumber": "123-456-7890"
 }
 
 ### ^ paste the returned userId here
 @userId = 00000000-0000-0000-0000-000000000000
 
-### Phase 3 — store the password (hashed; Descope never sees it).
+### Step 4 — set the password and create the account.
 POST {{host}}/api/registration/password
 Content-Type: application/json
-X-Connector-Key: {{connectorKey}}
 
 {
   "userId": "{{userId}}",
-  "password": "Str0ng!Pass",
-  "confirmPassword": "Str0ng!Pass"
+  "password": "Str0ng!PassPhrase",
+  "confirmPassword": "Str0ng!PassPhrase"
 }
 
-### Phase 4 — confirm eligibility and create the user.
-POST {{host}}/api/completeRegistration
-Content-Type: application/json
-X-Connector-Key: {{connectorKey}}
-
-{
-  "email": "{{email}}",
-  "ssn": "123-45-6789",
-  "memberId": null
-}
-
-### Phase 4, unhappy path — the stub treats an SSN ending 0000 as "no such member".
-POST {{host}}/api/completeRegistration
-Content-Type: application/json
-X-Connector-Key: {{connectorKey}}
-
-{
-  "email": "{{email}}",
-  "ssn": "123-45-0000"
-}
-
-### No connector key — expect 401.
+### Resuming — sending step 3 again for the same email returns the SAME userId, not a duplicate error.
 POST {{host}}/api/initiateRegistration
 Content-Type: application/json
 
 {
-  "email": "nokey@example.com",
-  "firstName": "No",
-  "lastName": "Key",
+  "email": "{{email}}",
+  "firstName": "Jane",
+  "lastName": "Member",
   "dateOfBirth": "1985-04-23",
-  "zipCode": "12345"
+  "zipCode": "12345",
+  "contactNumber": null
+}
+
+### Too-short password — expect 400 with the policy message.
+POST {{host}}/api/registration/password
+Content-Type: application/json
+
+{
+  "userId": "{{userId}}",
+  "password": "Short1!",
+  "confirmPassword": "Short1!"
 }
 
 ### Health

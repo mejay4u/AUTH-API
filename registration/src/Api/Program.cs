@@ -40,6 +40,11 @@ app.UseCors(Registration.Api.DependencyInjection.CorsPolicyName);
 
 app.UseRateLimiter();
 
+// Validates the Descope session token the app sends (skipped when
+// Descope:AllowAnonymous is on, which is development only).
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.MapRegistrationEndpoints();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))

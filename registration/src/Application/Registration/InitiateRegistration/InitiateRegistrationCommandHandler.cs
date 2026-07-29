@@ -11,21 +11,21 @@ using Registration.Domain.Registration;
 namespace Registration.Application.Registration.InitiateRegistration;
 
 /// <summary>
-/// Creates the Pending member record. The email arrives already verified — Descope validates the OTP
-/// before calling — so there is no verification state to track here.
+/// Creates the pending member record. The email arrives already verified — Descope validates the OTP
+/// before the app ever holds the token that authorises this call — so there is no verification state
+/// to track here.
 /// </summary>
 /// <remarks>
-/// Two repeat cases are handled deliberately, because a member who drops out mid-flow and starts again
-/// is normal rather than exceptional:
+/// Two repeat cases are handled deliberately, because a member who drops out mid-wizard and starts
+/// again is normal rather than exceptional:
 /// <list type="bullet">
-///   <item>Already a full account → conflict. The flow shows "please sign in".</item>
-///   <item>An unexpired Pending record already exists → reuse it, refreshing the details in case they
-///   were corrected on the retry. Returning the same id keeps the retry on one record instead of
-///   littering the table.</item>
+///   <item>Already a full account → conflict, and the app tells them to sign in.</item>
+///   <item>An unexpired pending record exists → reuse it, so a retry stays on one record instead of
+///   littering the table. An expired one is replaced.</item>
 /// </list>
-/// Unlike the previous OTP-owning version, this is NOT enumeration-safe by design: the flow needs to
-/// tell the member their account already exists. Descope has already proved the caller controls the
-/// address by this point, so answering that question leaks nothing to a stranger.
+/// This is intentionally NOT enumeration-safe: the wizard needs to tell the member their account
+/// already exists. Descope has already proved the caller controls the address by this point, so
+/// answering that question leaks nothing to a stranger.
 /// </remarks>
 public sealed class InitiateRegistrationCommandHandler(
     IPendingRegistrationRepository pendingRepository,
@@ -72,6 +72,9 @@ public sealed class InitiateRegistrationCommandHandler(
             LastName = request.LastName.Trim(),
             DateOfBirth = request.DateOfBirth,
             ZipCode = request.ZipCode.Trim(),
+            ContactNumber = string.IsNullOrWhiteSpace(request.ContactNumber)
+                ? null
+                : request.ContactNumber.Trim(),
             CreatedUtc = now.UtcDateTime,
             ExpiresUtc = now.AddMinutes(_options.SessionLifetimeMinutes).UtcDateTime
         };

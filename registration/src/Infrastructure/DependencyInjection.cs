@@ -1,10 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using Registration.Application.Common.Interfaces;
 using Registration.Application.Common.Options;
-using Registration.Infrastructure.Facets;
 using Registration.Infrastructure.Persistence;
 using Registration.Infrastructure.Persistence.Repositories;
 using Registration.Infrastructure.Security.PasswordHashing;
@@ -21,10 +19,8 @@ public static class DependencyInjection
         AddOptions(services, configuration);
 
         services.AddSingleton(TimeProvider.System);
-
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
 
-        AddFacets(services, isDevelopment);
         AddPersistence(services, configuration, isDevelopment);
 
         return services;
@@ -44,53 +40,6 @@ public static class DependencyInjection
         services.AddOptions<PasswordHashingOptions>()
             .Bind(configuration.GetSection(PasswordHashingOptions.SectionName))
             .ValidateOnStart();
-
-        services.AddOptions<FacetsOptions>()
-            .Bind(configuration.GetSection(FacetsOptions.SectionName))
-            .ValidateOnStart();
-    }
-
-    private static void AddFacets(IServiceCollection services, bool isDevelopment)
-    {
-        services.AddSingleton<IFacetsClient>(provider =>
-        {
-            var facets = provider.GetRequiredService<IOptions<FacetsOptions>>().Value;
-
-            // The stub matches everyone, so it is only ever allowed in Development — a misconfigured
-            // environment must fail loudly rather than quietly hand out accounts.
-            if (facets.UseStub)
-            {
-                if (!isDevelopment)
-                {
-                    throw new InvalidOperationException(
-                        "Facets:Provider = Stub is only permitted in Development.");
-                }
-
-                return ActivatorUtilities.CreateInstance<StubFacetsClient>(provider);
-            }
-
-            if (string.IsNullOrWhiteSpace(facets.BaseUrl))
-            {
-                throw new InvalidOperationException(
-                    "Facets:BaseUrl is required when Facets:Provider = Http.");
-            }
-
-            // A single long-lived HttpClient with a fixed base address. If the team adds
-            // Microsoft.Extensions.Http, swap this for AddHttpClient<IFacetsClient, HttpFacetsClient>()
-            // to pick up handler rotation and Polly policies.
-            var httpClient = new HttpClient
-            {
-                BaseAddress = new Uri(facets.BaseUrl, UriKind.Absolute),
-                Timeout = TimeSpan.FromSeconds(facets.TimeoutSeconds)
-            };
-
-            if (!string.IsNullOrWhiteSpace(facets.ApiKey))
-            {
-                httpClient.DefaultRequestHeaders.Add("X-Api-Key", facets.ApiKey);
-            }
-
-            return ActivatorUtilities.CreateInstance<HttpFacetsClient>(provider, httpClient);
-        });
     }
 
     private static void AddPersistence(IServiceCollection services, IConfiguration configuration, bool isDevelopment)

@@ -3,19 +3,21 @@ using Registration.Application.Common.Models;
 namespace Registration.Api.Contracts;
 
 /// <summary>
-/// Phase 2: Descope has verified the email and passes on what it collected in phase 1.
-/// <c>DateOfBirth</c> is an ISO date (yyyy-MM-dd).
+/// Step 3: the reviewed personal information. Sent once the member has verified their email and
+/// confirmed the details. <c>DateOfBirth</c> is an ISO date (yyyy-MM-dd); <c>ContactNumber</c> is
+/// optional.
 /// </summary>
 public sealed record InitiateRegistrationRequest(
     string Email,
     string FirstName,
     string LastName,
     DateOnly DateOfBirth,
-    string ZipCode);
+    string ZipCode,
+    string? ContactNumber);
 
 /// <summary>
-/// The identifier Descope holds for the rest of the flow. Named <c>UserId</c> because that is what the
-/// sequence diagram calls it, even though the underlying record is still pending.
+/// The identifier the app holds for the rest of the wizard. Named <c>UserId</c> because that is what
+/// the design calls it, even though the underlying record is still pending.
 /// </summary>
 public sealed record InitiateRegistrationResponse(Guid UserId, string Email, string Status)
 {
@@ -23,25 +25,11 @@ public sealed record InitiateRegistrationResponse(Guid UserId, string Email, str
         new(r.UserId, r.Email, r.Status);
 }
 
-/// <summary>Phase 3: the password the member chose, with its confirmation.</summary>
-public sealed record SetPasswordRequest(Guid UserId, string Password, string ConfirmPassword);
+/// <summary>Step 4: the password, with its confirmation. Creates the account.</summary>
+public sealed record CreateAccountRequest(Guid UserId, string Password, string ConfirmPassword);
 
-/// <summary>Phase 4: the details used to confirm membership against Facets.</summary>
-public sealed record CompleteRegistrationRequest(string Email, string Ssn, string? MemberId);
-
-/// <summary>
-/// Phase 4's result. Descope maps <c>memberInfo.subscriberId</c> and <c>planInfo.planId</c> into the
-/// session JWT's custom claims, so those paths are part of the contract with the flow.
-/// </summary>
-public sealed record CompleteRegistrationResponse(
-    bool Complete,
-    Guid UserId,
-    MemberInfo MemberInfo,
-    PlanInfo PlanInfo)
+/// <summary>Response returned when an account is created.</summary>
+public sealed record CreateAccountResponse(Guid UserId, string Email, string Username)
 {
-    public static CompleteRegistrationResponse From(CompleteRegistrationResult r) =>
-        new(r.Complete, r.UserId, r.MemberInfo, r.PlanInfo);
+    public static CreateAccountResponse From(CreateAccountResult r) => new(r.UserId, r.Email, r.Username);
 }
-
-/// <summary>Generic success message where there is nothing else to return.</summary>
-public sealed record MessageResponse(string Message);

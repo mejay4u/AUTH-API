@@ -20,7 +20,7 @@ public sealed class EfPendingRegistrationRepositoryTests
         Assert.Equal(pending.Email, loaded!.Email);
         Assert.Equal(pending.FirstName, loaded.FirstName);
         Assert.Equal(pending.DateOfBirth, loaded.DateOfBirth);
-        Assert.False(loaded.HasPassword);
+        Assert.Equal(pending.ContactNumber, loaded.ContactNumber);
     }
 
     [Fact]
@@ -47,33 +47,6 @@ public sealed class EfPendingRegistrationRepositoryTests
     }
 
     [Fact]
-    public async Task SetPassword_stores_both_hash_and_salt()
-    {
-        await using var db = TestDoubles.NewDb("pending");
-        var repository = new EfPendingRegistrationRepository(db);
-        var pending = TestDoubles.NewPending();
-        await repository.CreateAsync(pending, CancellationToken.None);
-
-        await repository.SetPasswordAsync(pending.Id, "the-hash", "the-salt", CancellationToken.None);
-        var loaded = await repository.GetAsync(pending.Id, CancellationToken.None);
-
-        Assert.True(loaded!.HasPassword);
-        Assert.Equal("the-hash", loaded.PasswordHash);
-        Assert.Equal("the-salt", loaded.PasswordSalt);
-    }
-
-    [Fact]
-    public async Task SetPassword_on_an_unknown_id_is_a_no_op()
-    {
-        await using var db = TestDoubles.NewDb("pending");
-        var repository = new EfPendingRegistrationRepository(db);
-
-        await repository.SetPasswordAsync(Guid.NewGuid(), "h", "s", CancellationToken.None);
-
-        Assert.Empty(db.PendingRegistrations);
-    }
-
-    [Fact]
     public async Task Delete_removes_the_record()
     {
         await using var db = TestDoubles.NewDb("pending");
@@ -91,7 +64,7 @@ public sealed class EfUserRegistrationRepositoryTests
 {
     private static NewUserRegistration NewUser(Guid id, string email = "john.doe@gmail.com") =>
         new(id, email, email, "hash", "salt", "John", "Doe",
-            new DateOnly(1990, 5, 15), "12345", "SUB1234", "PLN1234", "6789");
+            new DateOnly(1990, 5, 15), "12345", "123-456-7890");
 
     [Fact]
     public async Task CreateUser_keeps_the_id_it_was_given()
@@ -102,23 +75,8 @@ public sealed class EfUserRegistrationRepositoryTests
 
         var created = await repository.CreateUserAsync(NewUser(id), CancellationToken.None);
 
-        // The pending record's id carries over, so the identifier Descope holds stays valid.
+        // The pending record's id carries over, so the identifier the app holds stays valid.
         Assert.Equal(id, created);
-    }
-
-    [Fact]
-    public async Task CreateUser_persists_the_eligibility_it_was_given()
-    {
-        await using var db = TestDoubles.NewDb();
-        var repository = new EfUserRegistrationRepository(db, TimeProvider.System);
-
-        await repository.CreateUserAsync(NewUser(Guid.NewGuid()), CancellationToken.None);
-
-        var user = db.Users.Single();
-        Assert.Equal("SUB1234", user.SubscriberId);
-        Assert.Equal("PLN1234", user.PlanId);
-        Assert.Equal("6789", user.SsnLast4);
-        Assert.True(user.IsActive);
     }
 
     [Fact]

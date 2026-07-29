@@ -28,12 +28,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.LastName).HasMaxLength(100).IsRequired();
         builder.Property(u => u.DateOfBirth).IsRequired();               // maps to SQL 'date'
         builder.Property(u => u.ZipCode).HasMaxLength(10).IsRequired();
-        builder.Property(u => u.ContactNumber).HasMaxLength(20);         // nullable (not collected today)
-
-        // Eligibility, from the Facets match at completion.
-        builder.Property(u => u.SubscriberId).HasMaxLength(50);
-        builder.Property(u => u.PlanId).HasMaxLength(50);
-        builder.Property(u => u.SsnLast4).HasMaxLength(4);
+        builder.Property(u => u.ContactNumber).HasMaxLength(20);         // nullable (optional)
 
         builder.Property(u => u.IsActive).IsRequired();
         builder.Property(u => u.CreatedUtc).IsRequired();

@@ -3,9 +3,9 @@ using FluentValidation;
 namespace Registration.Application.Registration.InitiateRegistration;
 
 /// <summary>
-/// Server-side, authoritative validation of the personal information the flow collected. The flow's
-/// screens validate too, but this is the copy that counts — the request arrives over HTTP and nothing
-/// stops it being sent directly. Applicants must be at least <see cref="MinimumAgeYears"/>.
+/// Server-side, authoritative validation of the personal information collected on the registration
+/// screen. The app validates too, but this is the copy that counts — the request arrives over HTTP and
+/// nothing stops it being sent directly. Applicants must be at least <see cref="MinimumAgeYears"/>.
 /// </summary>
 public sealed class InitiateRegistrationCommandValidator : AbstractValidator<InitiateRegistrationCommand>
 {
@@ -37,6 +37,10 @@ public sealed class InitiateRegistrationCommandValidator : AbstractValidator<Ini
             .NotEmpty().WithMessage("Email address is required.")
             .EmailAddress().WithMessage("Enter a valid email address.")
             .MaximumLength(256);
+
+        When(x => !string.IsNullOrWhiteSpace(x.ContactNumber), () =>
+            RuleFor(x => x.ContactNumber)
+                .Matches(@"^[0-9+()\-\s]{7,20}$").WithMessage("Enter a valid contact number."));
     }
 
     private static bool BeAValidDateOfBirth(DateOnly dateOfBirth) =>

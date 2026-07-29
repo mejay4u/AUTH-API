@@ -24,23 +24,6 @@ public sealed class EfPendingRegistrationRepository(RegistrationDbContext db) : 
     public Task<PendingRegistration?> GetByEmailAsync(string email, CancellationToken cancellationToken) =>
         db.PendingRegistrations.AsNoTracking().FirstOrDefaultAsync(p => p.Email == email, cancellationToken);
 
-    public async Task SetPasswordAsync(
-        Guid id,
-        string passwordHash,
-        string passwordSalt,
-        CancellationToken cancellationToken)
-    {
-        var pending = await db.PendingRegistrations.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
-        if (pending is null)
-        {
-            return;
-        }
-
-        pending.PasswordHash = passwordHash;
-        pending.PasswordSalt = passwordSalt;
-        await db.SaveChangesAsync(cancellationToken);
-    }
-
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken)
     {
         var pending = await db.PendingRegistrations.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);

@@ -1,6 +1,5 @@
-using Registration.Application.Registration.CompleteRegistration;
+using Registration.Application.Registration.CreateAccount;
 using Registration.Application.Registration.InitiateRegistration;
-using Registration.Application.Registration.SetPassword;
 using Xunit;
 
 namespace Registration.UnitTests;
@@ -10,12 +9,24 @@ public sealed class InitiateRegistrationCommandValidatorTests
     private readonly InitiateRegistrationCommandValidator _validator = new();
 
     private static InitiateRegistrationCommand Valid() =>
-        new("john.doe@gmail.com", "John", "Doe", new DateOnly(1990, 5, 15), "12345");
+        new("john.doe@gmail.com", "John", "Doe", new DateOnly(1990, 5, 15), "12345", null);
 
     [Fact]
     public void Accepts_a_complete_registration()
     {
         Assert.True(_validator.Validate(Valid()).IsValid);
+    }
+
+    [Fact]
+    public void Accepts_an_optional_contact_number()
+    {
+        Assert.True(_validator.Validate(Valid() with { ContactNumber = "123-456-7890" }).IsValid);
+    }
+
+    [Fact]
+    public void Rejects_a_malformed_contact_number()
+    {
+        Assert.False(_validator.Validate(Valid() with { ContactNumber = "not a number" }).IsValid);
     }
 
     [Theory]
@@ -57,24 +68,25 @@ public sealed class InitiateRegistrationCommandValidatorTests
     }
 }
 
-public sealed class SetPasswordCommandValidatorTests
+public sealed class CreateAccountCommandValidatorTests
 {
-    private readonly SetPasswordCommandValidator _validator = new(TestDoubles.NewPasswordPolicy());
+    private readonly CreateAccountCommandValidator _validator = new(TestDoubles.NewPasswordPolicy());
 
-    private static SetPasswordCommand WithPassword(string password) =>
+    private static CreateAccountCommand WithPassword(string password) =>
         new(Guid.NewGuid(), password, password);
 
     [Fact]
     public void Accepts_a_password_meeting_every_rule()
     {
-        Assert.True(_validator.Validate(WithPassword("Str0ng!Pass")).IsValid);
+        Assert.True(_validator.Validate(WithPassword("Str0ng!PassPhrase")).IsValid);
     }
 
     [Theory]
-    [InlineData("Sh0rt!")]        // shorter than the minimum
-    [InlineData("nouppercase1!")] // no uppercase letter
-    [InlineData("NoDigits!!")]    // no digit
-    [InlineData("NoSpecial123")]  // no special character
+    [InlineData("Str0ng!Pass")]            // 11 chars — under the 14 minimum
+    [InlineData("nouppercase1!phrase")]    // no uppercase letter
+    [InlineData("NOLOWERCASE1!PHRASE")]    // no lowercase letter
+    [InlineData("NoDigitsHere!Phrase")]    // no digit
+    [InlineData("NoSpecial123Phrase")]     // no special character
     public void Rejects_a_password_breaking_a_rule(string password)
     {
         Assert.False(_validator.Validate(WithPassword(password)).IsValid);
@@ -83,50 +95,20 @@ public sealed class SetPasswordCommandValidatorTests
     [Fact]
     public void Rejects_a_password_longer_than_the_maximum()
     {
-        Assert.False(_validator.Validate(WithPassword("Str0ng!Pass" + new string('a', 20))).IsValid);
+        Assert.False(_validator.Validate(WithPassword("Str0ng!Pass" + new string('a', 56))).IsValid);
     }
 
     [Fact]
     public void Rejects_a_confirmation_that_does_not_match()
     {
-        var command = new SetPasswordCommand(Guid.NewGuid(), "Str0ng!Pass", "Different1!");
+        var command = new CreateAccountCommand(Guid.NewGuid(), "Str0ng!PassPhrase", "Different1!Phrase");
         Assert.False(_validator.Validate(command).IsValid);
     }
 
     [Fact]
     public void Rejects_an_empty_registration_id()
     {
-        var command = new SetPasswordCommand(Guid.Empty, "Str0ng!Pass", "Str0ng!Pass");
+        var command = new CreateAccountCommand(Guid.Empty, "Str0ng!PassPhrase", "Str0ng!PassPhrase");
         Assert.False(_validator.Validate(command).IsValid);
-    }
-}
-
-public sealed class CompleteRegistrationCommandValidatorTests
-{
-    private readonly CompleteRegistrationCommandValidator _validator = new();
-
-    [Theory]
-    [InlineData("123-45-6789")]
-    [InlineData("123456789")]
-    public void Accepts_an_ssn_with_or_without_dashes(string ssn)
-    {
-        Assert.True(_validator.Validate(new CompleteRegistrationCommand("a@b.com", ssn, null)).IsValid);
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("12345678")]
-    [InlineData("1234567890")]
-    [InlineData("123-45-678X")]
-    public void Rejects_an_ssn_that_is_not_nine_digits(string ssn)
-    {
-        Assert.False(_validator.Validate(new CompleteRegistrationCommand("a@b.com", ssn, null)).IsValid);
-    }
-
-    [Fact]
-    public void Rejects_an_invalid_email()
-    {
-        Assert.False(
-            _validator.Validate(new CompleteRegistrationCommand("nope", "123456789", null)).IsValid);
     }
 }

@@ -1,140 +1,106 @@
 # Member Registration API
 
-A **standalone .NET 8** service (Clean Architecture) that backs the portal sign-up flow. It is
+A **standalone .NET 8** service (Clean Architecture) that backs the portal sign-up wizard. It is
 intentionally separate from the Auth/login service.
 
-**It is a BFF for a Descope flow, not a public API.** Registration runs as a Descope Flow — the
-"passthru" model — and the **Descope engine** calls this service server-to-server through its HTTP
-connectors. The mobile app never calls these endpoints; it only renders the flow's screens.
-
-The division of labour:
+**Descope verifies the email; this service owns everything else.** The mobile app runs the wizard,
+uses the Descope SDK for the email OTP, then calls these two endpoints with the session token Descope
+issued. The member record and the **password** live here, not in Descope.
 
 | | Descope | This service |
 | --- | --- | --- |
-| Owns | the email address (login ID), the flow and its state, the OTP, the session JWT | the member record, the **password**, eligibility |
-| Does | collects input, verifies the OTP, calls us, mints an enriched JWT | stores the record, hashes the password, matches the member in Facets |
-| Never sees | the password | — |
+| Owns | the email address (login ID), the OTP, the session token | the member record and the **password** |
+| Never sees | the password, or any profile field | — |
 
 ```
 registration/
   src/
     Domain/          Result/Error primitives, RegistrationErrors, User, PendingRegistration. No dependencies.
-    Application/     CQRS use cases (InitiateRegistration, SetPassword, CompleteRegistration), FluentValidation, interfaces, options.
-    Infrastructure/  EF Core DbContext (database-first), PBKDF2 hasher, Facets client. 
-    Api/             Minimal-API endpoints, connector auth, ProblemDetails, rate limiting, feature flag, Swagger.
+    Application/     CQRS use cases (InitiateRegistration, CreateAccount), FluentValidation, interfaces, options.
+    Infrastructure/  EF Core DbContext (database-first), PBKDF2 hasher.
+    Api/             Minimal-API endpoints, Descope token validation, ProblemDetails, rate limiting, feature flag, Swagger.
   tests/
     Registration.UnitTests/  xUnit tests (validators, handlers, EF repositories, hasher).
 ```
 
 Dependencies point inward: `Api → Infrastructure → Application → Domain`.
 
-## The flow, and the three calls into this service
+## The wizard, and the two calls into this service
 
-Phase numbers match the sequence diagram.
+The app's six-step wizard: **Personal Information → Verify Email → Review → Create Account → (5,
+membership check — not built yet) → All set.**
 
-**Phase 1 (Descope only).** The member enters email, name, date of birth and ZIP into the flow's
-screens. Descope holds them in flow state and emails an OTP. We are not involved.
+Steps 1–2 are Descope only: the app collects the details and calls `otp.signUp.email` /
+`otp.verify.email`. Nothing reaches this service until the email is verified.
 
-**Phase 2 — `POST /api/initiateRegistration`.** Descope validates the OTP, *then* calls us with the
-details. We create the member record in **Pending** state and return its `userId`. Descope creates its
-own passwordless shadow record (email only) after we succeed, so our record leads and Descope follows.
+**Step 3 — `POST /api/initiateRegistration`.** The member has confirmed their details on the review
+screen. Store them and return the pending record's id.
 
 ```jsonc
 // request
 { "email": "jane@example.com", "firstName": "Jane", "lastName": "Member",
-  "dateOfBirth": "1985-04-23", "zipCode": "12345" }
+  "dateOfBirth": "1985-04-23", "zipCode": "12345", "contactNumber": "123-456-7890" }
 // 200
 { "userId": "8f3c…", "email": "jane@example.com", "status": "Pending" }
 ```
 
-A member who abandons the flow and starts again gets the **same** record back rather than a
-duplicate-key error; an expired one is replaced. An email that already has a full account is a `409`.
+A member who abandons the wizard and starts again gets the **same** record back rather than a
+duplicate-key error; an expired one is replaced. An email that already has an account is a `409`.
 
-> There is no `emailVerified` flag anywhere in this service. Descope only calls us after verifying the
-> OTP, so a record existing here already means the address was verified — a guarantee that rests
-> entirely on the connector credential below.
-
-**Phase 3 — `POST /api/registration/password`.** The password, hashed with PBKDF2 and stored against
-the pending record. Descope never receives it, which is why sign-in has to be validated against this
-database.
-
-```jsonc
-{ "userId": "8f3c…", "password": "…", "confirmPassword": "…" }   // -> 200
-```
-
-The diagram shows this hitting `/api/initiateRegistration` again with a different body; that reads as a
-copy-paste slip, so it has its own route. If it really must share the path, say so and it can be
-folded back.
-
-**Phase 4 — `POST /api/completeRegistration`.** The SSN (and optional member ID) are matched against
-Facets across all tenants. On a match the pending record is promoted to a real `User` — carrying the
-**same id** — and the subscriber and plan come back for Descope to map into the session JWT's custom
-claims.
+**Step 4 — `POST /api/registration/password`.** The Create Account button. Hash the password, promote
+the pending record to a real `User` under the **same id**, and delete the pending row.
 
 ```jsonc
 // request
-{ "email": "jane@example.com", "ssn": "123-45-6789", "memberId": null }
-// 200
-{ "complete": true, "userId": "8f3c…",
-  "memberInfo": { "subscriberId": "SUB1234", "memberId": "MBR1234", … },
-  "planInfo":   { "planId": "PLN1234", "planName": "…", … } }
+{ "userId": "8f3c…", "password": "…", "confirmPassword": "…" }
+// 201
+{ "userId": "8f3c…", "email": "jane@example.com", "username": "jane@example.com" }
 ```
 
-`memberInfo.subscriberId` and `planInfo.planId` are part of the contract with the flow — the connector
-maps those paths into claims, so renaming them means reconfiguring Descope.
+The password never goes to Descope, which is why sign-in has to be validated against this database.
 
-## Authentication: the connector key
+> There is no `emailVerified` flag anywhere in this service. Descope verifies the address before the
+> app is given the token that authorises these calls, so a pending record existing at all means the
+> address was verified — provided the token is validated, which is the next section.
 
-These endpoints are machine-to-machine. There is no member session token to validate — the caller is
-the Descope engine — so a shared secret in a header is what separates a real connector call from
-anyone who found the URL.
+## Authentication
+
+Both endpoints require the **Descope session JWT** the app received from `otp.verify.email`, sent as
+`Authorization: Bearer …`. It is validated properly — signature against Descope's JWKS for the
+project, issuer, and lifetime — not merely decoded.
 
 ```jsonc
-"ConnectorAuth": {
-  "HeaderName": "X-Connector-Key",
-  "Keys": [ "…" ],          // supply via secrets/Key Vault; two at once allows zero-downtime rotation
-  "AllowAnonymous": false   // development only
+"Descope": {
+  "ProjectId": "P2xxxxxxxx",          // also the token issuer
+  "BaseUrl": "https://api.descope.com",
+  "AllowAnonymous": false             // development only
 }
 ```
 
-Startup fails if neither a key nor `AllowAnonymous` is configured. Comparison is constant-time and does
-not short-circuit on the first match.
+Startup fails if no project ID is configured and `AllowAnonymous` is off.
 
-This key is load-bearing in a way that is easy to miss: it is the *only* evidence this service has that
-an email address was verified. Treat it like a signing key.
+`initiateRegistration` additionally checks that the email in the body matches the one in the token, so
+a valid token for one address can't register another. That check is skipped when the token carries no
+email claim — Descope projects vary on this, so if yours doesn't include one, either add it as a
+custom claim or resolve it with the Management SDK before relying on the check.
 
-## Eligibility (Facets)
+## Password policy
 
-`IFacetsClient` has two implementations, chosen by `Facets:Provider`:
+Defaults match the Create Account screen's checklist: **14–56 characters**, with uppercase, lowercase,
+digit and special all required. Configurable under `PasswordPolicy` — change it here and in the app's
+`PASSWORD_POLICY` together, or members will be told one thing and refused for another.
 
-- **`Http`** — the real lookup. ⚠️ Its request/response DTOs were written from the sequence diagram,
-  **not** from a published Facets contract, and are marked provisional in the source. Align them before
-  trusting them; the surrounding behaviour (auth header, timeout, status mapping) holds regardless.
-- **`Stub`** — matches everyone, for walking the flow before that integration exists. Startup **throws**
-  if it is selected outside Development. An SSN ending `0000` returns "not found" so the unhappy path
-  is reachable.
-
-Two failure modes are kept distinct all the way to the caller, because they mean different things to a
-member: *no such member* (their details are wrong) versus *lookup failed* (we're broken, try later).
-
-A Facets match on SSN alone is **not** enough to hand over an account — surname and date of birth must
-also agree with what was registered. A mismatch returns exactly the same error as "not found", so the
-response can't be used to probe whose SSN it is; the real reason is logged.
-
-## Handling of SSN
-
-The full SSN is used for the Facets match and then **discarded**. Only `SsnLast4` is persisted. It is
-never logged, and error responses from the Facets client deliberately omit the response body in case it
-echoes the number back.
+Hashing is PBKDF2 (HMAC-SHA256, 210k iterations by default) behind `IPasswordHasher`, so the scheme
+can be swapped without touching a use case.
 
 ## Running it
 
 ```bash
 cd registration
-dotnet run --project src/Api            # Development: InMemory DB + Facets stub + dev connector key
+dotnet run --project src/Api            # Development: InMemory DB, token validation off
 ```
 
-`requests.http` walks all three phases in order, including the 401 and not-eligible paths.
+`requests.http` walks both steps in order, including the resume path and a rejected password.
 
 For a real database, run `scripts/create-registration-user-table.sql` once, then set
 `Database:Provider = SqlServer` and `ConnectionStrings:RegistrationDb`.
@@ -146,7 +112,9 @@ comes back).
 
 ## What is deliberately NOT here
 
-- **OTP and email delivery.** Descope owns both. The previous version of this service generated and
-  mailed its own codes; that is gone.
-- **Sign-in.** Still the Auth API's job. Note that it will not work for members registered this way
-  until password validation is proxied to this database — the password lives here now.
+- **OTP and email delivery.** Descope owns both.
+- **The membership/eligibility check** (SSN, Facets lookup, subscriber and plan IDs). That's step 5 of
+  the design and isn't built — the wizard currently goes straight from Create Account to the success
+  screen. An earlier draft of it is on the `claude/registration-descope-passthru` branch.
+- **Sign-in.** Still the Auth API's job, and note it will not work for members registered this way
+  until password validation is pointed at this database — the password lives here now.

@@ -2,16 +2,17 @@ using FluentValidation;
 using Microsoft.Extensions.Options;
 using Registration.Application.Common.Options;
 
-namespace Registration.Application.Registration.SetPassword;
+namespace Registration.Application.Registration.CreateAccount;
 
 /// <summary>
 /// Server-side, authoritative password validation. Reads the configurable
-/// <see cref="PasswordPolicyOptions"/> so the rules change via config, never code — and so the
-/// checklist the app shows while typing can be kept honest against the same source.
+/// <see cref="PasswordPolicyOptions"/> so the rules change via config, never
+/// code — and so the checklist the app shows while typing can be kept honest
+/// against the same source.
 /// </summary>
-public sealed class SetPasswordCommandValidator : AbstractValidator<SetPasswordCommand>
+public sealed class CreateAccountCommandValidator : AbstractValidator<CreateAccountCommand>
 {
-    public SetPasswordCommandValidator(IOptions<PasswordPolicyOptions> options)
+    public CreateAccountCommandValidator(IOptions<PasswordPolicyOptions> options)
     {
         var policy = options.Value;
 
@@ -30,6 +31,13 @@ public sealed class SetPasswordCommandValidator : AbstractValidator<SetPasswordC
             RuleFor(x => x.Password)
                 .Matches("[A-Z]")
                 .WithMessage("Password must contain at least one uppercase letter (A-Z).");
+        }
+
+        if (policy.RequireLowercase)
+        {
+            RuleFor(x => x.Password)
+                .Matches("[a-z]")
+                .WithMessage("Password must contain at least one lowercase letter (a-z).");
         }
 
         if (policy.RequireDigit)

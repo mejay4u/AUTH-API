@@ -15,13 +15,10 @@ public interface IPendingRegistrationRepository
     Task<PendingRegistration?> GetAsync(Guid id, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Load by email address — how <c>completeRegistration</c> finds the record, since that step is
-    /// keyed on email rather than on the id.
+    /// Load by email address — how the initiate step spots an in-progress registration for someone
+    /// who abandoned the wizard and came back.
     /// </summary>
     Task<PendingRegistration?> GetByEmailAsync(string email, CancellationToken cancellationToken);
-
-    /// <summary>Store the password hash and salt against the record (the password step).</summary>
-    Task SetPasswordAsync(Guid id, string passwordHash, string passwordSalt, CancellationToken cancellationToken);
 
     /// <summary>Delete the record (after it is promoted to a user, or to clean up).</summary>
     Task DeleteAsync(Guid id, CancellationToken cancellationToken);

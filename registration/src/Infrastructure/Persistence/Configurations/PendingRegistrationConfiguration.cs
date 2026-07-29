@@ -24,16 +24,10 @@ public sealed class PendingRegistrationConfiguration : IEntityTypeConfiguration<
         builder.Property(p => p.LastName).HasMaxLength(100).IsRequired();
         builder.Property(p => p.DateOfBirth).IsRequired();
         builder.Property(p => p.ZipCode).HasMaxLength(10).IsRequired();
-
-        // Null until the password step.
-        builder.Property(p => p.PasswordHash).HasMaxLength(512);
-        builder.Property(p => p.PasswordSalt).HasMaxLength(256);
+        builder.Property(p => p.ContactNumber).HasMaxLength(20);
 
         builder.Property(p => p.CreatedUtc).IsRequired();
         builder.Property(p => p.ExpiresUtc).IsRequired();
-
-        // Computed from the hash columns — nothing to store.
-        builder.Ignore(p => p.HasPassword);
 
         builder.HasIndex(p => p.Email).IsUnique();
         builder.HasIndex(p => p.ExpiresUtc);
