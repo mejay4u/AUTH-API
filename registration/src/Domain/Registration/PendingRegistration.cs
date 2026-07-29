@@ -19,6 +19,12 @@ public class PendingRegistration
 
     public string Email { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The Descope user id (`sub`) from the token that authorised this registration. Stored so the
+    /// Auth API can map a Descope identity to a member later without going through the email address.
+    /// </summary>
+    public string? DescopeUserId { get; set; }
+
     public string FirstName { get; set; } = string.Empty;
 
     public string LastName { get; set; } = string.Empty;

@@ -12,7 +12,7 @@ namespace Registration.UnitTests;
 public sealed class InitiateRegistrationCommandHandlerTests
 {
     private static InitiateRegistrationCommand NewCommand(string email = "john.doe@gmail.com") =>
-        new(email, "John", "Doe", new DateOnly(1990, 5, 15), "12345", "123-456-7890");
+        new(email, "John", "Doe", new DateOnly(1990, 5, 15), "12345", "123-456-7890", "descope-user-1");
 
     private static InitiateRegistrationCommandHandler NewHandler(
         RegistrationDbContext db,
@@ -37,6 +37,8 @@ public sealed class InitiateRegistrationCommandHandlerTests
         var stored = db.PendingRegistrations.Single();
         Assert.Equal("john.doe@gmail.com", stored.Email);
         Assert.Equal("123-456-7890", stored.ContactNumber);
+        // Recorded so the Auth API can later map this Descope identity to the member.
+        Assert.Equal("descope-user-1", stored.DescopeUserId);
     }
 
     [Fact]
@@ -90,7 +92,7 @@ public sealed class InitiateRegistrationCommandHandlerTests
         await new EfUserRegistrationRepository(db, TimeProvider.System).CreateUserAsync(
             new NewUserRegistration(
                 Guid.NewGuid(), "john.doe@gmail.com", "john.doe@gmail.com", "hash", "salt",
-                "John", "Doe", new DateOnly(1990, 5, 15), "12345", null),
+                null, "John", "Doe", new DateOnly(1990, 5, 15), "12345", null),
             CancellationToken.None);
 
         var result = await NewHandler(db).Handle(NewCommand(), CancellationToken.None);
@@ -137,6 +139,8 @@ public sealed class CreateAccountCommandHandlerTests
         Assert.Equal("John", user.FirstName);
         Assert.Equal("123-456-7890", user.ContactNumber);
         Assert.True(user.IsActive);
+        // The Descope link survives the promotion — that's what token exchange keys on.
+        Assert.Equal("descope-user-1", user.DescopeUserId);
     }
 
     [Fact]
@@ -216,7 +220,7 @@ public sealed class CreateAccountCommandHandlerTests
         await new EfUserRegistrationRepository(db, TimeProvider.System).CreateUserAsync(
             new NewUserRegistration(
                 Guid.NewGuid(), pending.Email, pending.Email, "hash", "salt",
-                "John", "Doe", new DateOnly(1990, 5, 15), "12345", null),
+                null, "John", "Doe", new DateOnly(1990, 5, 15), "12345", null),
             CancellationToken.None);
 
         var result = await NewHandler(db)

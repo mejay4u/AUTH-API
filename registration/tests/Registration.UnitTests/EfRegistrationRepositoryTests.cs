@@ -63,7 +63,7 @@ public sealed class EfPendingRegistrationRepositoryTests
 public sealed class EfUserRegistrationRepositoryTests
 {
     private static NewUserRegistration NewUser(Guid id, string email = "john.doe@gmail.com") =>
-        new(id, email, email, "hash", "salt", "John", "Doe",
+        new(id, email, email, "hash", "salt", "desc-user-1", "John", "Doe",
             new DateOnly(1990, 5, 15), "12345", "123-456-7890");
 
     [Fact]

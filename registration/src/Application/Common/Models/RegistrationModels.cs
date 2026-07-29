@@ -23,6 +23,7 @@ public sealed record NewUserRegistration(
     string Username,
     string PasswordHash,
     string PasswordSalt,
+    string? DescopeUserId,
     string FirstName,
     string LastName,
     DateOnly DateOfBirth,

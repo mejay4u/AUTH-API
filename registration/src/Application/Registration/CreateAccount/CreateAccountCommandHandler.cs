@@ -55,6 +55,7 @@ public sealed class CreateAccountCommandHandler(
                 Username: pending.Email,
                 PasswordHash: hash,
                 PasswordSalt: salt,
+                DescopeUserId: pending.DescopeUserId,
                 FirstName: pending.FirstName,
                 LastName: pending.LastName,
                 DateOfBirth: pending.DateOfBirth,

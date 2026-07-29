@@ -22,6 +22,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.Username).HasMaxLength(256).IsRequired();
         builder.Property(u => u.PasswordHash).HasMaxLength(512).IsRequired();
         builder.Property(u => u.PasswordSalt).HasMaxLength(256).IsRequired();
+        builder.Property(u => u.DescopeUserId).HasMaxLength(64);
 
         // Personal information (registration screen).
         builder.Property(u => u.FirstName).HasMaxLength(100).IsRequired();

@@ -19,6 +19,13 @@ public class User
 
     public string PasswordSalt { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The Descope user id (`sub`), carried over from the pending record. This is the link between the
+    /// Descope identity and this member — what lets the Auth API turn a validated Descope token into
+    /// its own enriched token without matching on email.
+    /// </summary>
+    public string? DescopeUserId { get; set; }
+
     // --- Personal information (registration screen) ---
     public string FirstName { get; set; } = string.Empty;
 

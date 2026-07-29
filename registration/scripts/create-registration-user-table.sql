@@ -16,6 +16,9 @@ BEGIN
         Username      NVARCHAR(256)    NOT NULL,
         PasswordHash  NVARCHAR(512)    NOT NULL,
         PasswordSalt  NVARCHAR(256)    NOT NULL,
+        -- Links this member to their Descope identity, so a validated Descope token can be
+        -- exchanged for the Auth API's own enriched token without matching on email.
+        DescopeUserId NVARCHAR(64)     NULL,
         FirstName     NVARCHAR(100)    NOT NULL,
         LastName      NVARCHAR(100)    NOT NULL,
         DateOfBirth   DATE             NOT NULL,
@@ -27,6 +30,9 @@ BEGIN
 
     CREATE UNIQUE INDEX UX_registration_Users_Email    ON registration.Users (Email);
     CREATE UNIQUE INDEX UX_registration_Users_Username ON registration.Users (Username);
+    -- Lookup path for token exchange. Filtered because it's null for anything created without a token.
+    CREATE INDEX IX_registration_Users_DescopeUserId ON registration.Users (DescopeUserId)
+        WHERE DescopeUserId IS NOT NULL;
 END
 GO
 
@@ -38,6 +44,7 @@ BEGIN
     (
         Id            UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_registration_PendingRegistrations PRIMARY KEY,
         Email         NVARCHAR(256)    NOT NULL,
+        DescopeUserId NVARCHAR(64)     NULL,
         FirstName     NVARCHAR(100)    NOT NULL,
         LastName      NVARCHAR(100)    NOT NULL,
         DateOfBirth   DATE             NOT NULL,

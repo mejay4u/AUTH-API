@@ -15,4 +15,6 @@ public sealed record InitiateRegistrationCommand(
     string LastName,
     DateOnly DateOfBirth,
     string ZipCode,
-    string? ContactNumber) : IRequest<Result<InitiateRegistrationResult>>;
+    string? ContactNumber,
+    // The `sub` of the Descope token that authorised this call; null when running anonymously.
+    string? DescopeUserId = null) : IRequest<Result<InitiateRegistrationResult>>;

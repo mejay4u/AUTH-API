@@ -68,6 +68,9 @@ public sealed class InitiateRegistrationCommandHandler(
         {
             Id = Guid.NewGuid(),
             Email = email,
+            DescopeUserId = string.IsNullOrWhiteSpace(request.DescopeUserId)
+                ? null
+                : request.DescopeUserId,
             FirstName = request.FirstName.Trim(),
             LastName = request.LastName.Trim(),
             DateOfBirth = request.DateOfBirth,

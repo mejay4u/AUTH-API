@@ -40,6 +40,7 @@ internal static class TestDoubles
     {
         Id = Guid.NewGuid(),
         Email = email,
+        DescopeUserId = "descope-user-1",
         FirstName = "John",
         LastName = "Doe",
         DateOfBirth = new DateOnly(1990, 5, 15),

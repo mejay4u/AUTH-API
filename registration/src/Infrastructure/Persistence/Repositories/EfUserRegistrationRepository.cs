@@ -26,6 +26,7 @@ public sealed class EfUserRegistrationRepository(RegistrationDbContext db, TimeP
             Username = registration.Username,
             PasswordHash = registration.PasswordHash,
             PasswordSalt = registration.PasswordSalt,
+            DescopeUserId = registration.DescopeUserId,
             FirstName = registration.FirstName,
             LastName = registration.LastName,
             DateOfBirth = registration.DateOfBirth,

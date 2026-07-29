@@ -78,7 +78,10 @@ public static class RegistrationEndpoints
                 request.LastName,
                 request.DateOfBirth,
                 request.ZipCode,
-                request.ContactNumber),
+                request.ContactNumber,
+                // Recorded against the member so the Auth API can later exchange a validated Descope
+                // token for its own enriched one without matching on email.
+                DescopePrincipal.GetUserId(httpContext.User)),
             cancellationToken);
 
         return result.ToHttpResult(r => Results.Ok(InitiateRegistrationResponse.From(r)));
