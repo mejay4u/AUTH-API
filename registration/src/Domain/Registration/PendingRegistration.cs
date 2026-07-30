@@ -8,9 +8,9 @@ namespace Registration.Domain.Registration;
 /// details that were reviewed.
 /// </summary>
 /// <remarks>
-/// There is no <c>EmailVerified</c> flag. Descope verifies the address before the app is given the
-/// session token that authorises these calls, so a record existing here already means the address was
-/// verified — provided the token is validated, which is the API's job.
+/// There is no <c>EmailVerified</c> flag. Descope's flow verifies the address before its connector
+/// makes this call, so a record existing here already means the address was verified — a guarantee
+/// that rests entirely on the connector credential being validated, which is the API's job.
 /// </remarks>
 public class PendingRegistration
 {
@@ -20,8 +20,9 @@ public class PendingRegistration
     public string Email { get; set; } = string.Empty;
 
     /// <summary>
-    /// The Descope user id (`sub`) from the token that authorised this registration. Stored so the
-    /// Auth API can map a Descope identity to a member later without going through the email address.
+    /// The Descope user id, when something is able to supply one. Currently always null — the flow
+    /// creates its shadow record only after <c>initiateRegistration</c> returns, so no id exists yet.
+    /// See <see cref="Users.User.DescopeUserId"/>.
     /// </summary>
     public string? DescopeUserId { get; set; }
 

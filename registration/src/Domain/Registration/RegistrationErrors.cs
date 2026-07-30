@@ -16,9 +16,4 @@ public static class RegistrationErrors
     public static readonly Error EmailAlreadyRegistered = Error.Conflict(
         "Registration.EmailAlreadyRegistered",
         "An account with this email address already exists.");
-
-    /// <summary>The bearer token's email doesn't match the registration being acted on.</summary>
-    public static readonly Error EmailMismatch = Error.Forbidden(
-        "Registration.EmailMismatch",
-        "This registration belongs to a different email address.");
 }

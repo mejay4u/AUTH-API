@@ -1,8 +1,6 @@
 using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.FeatureManagement;
-using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Registration.Api.Endpoints;
 using Registration.Api.Infrastructure;
@@ -21,7 +19,7 @@ public static class DependencyInjection
         // Feature flags (config section "FeatureManagement"), used to gate the registration endpoints.
         services.AddFeatureManagement();
 
-        AddDescopeAuthentication(services, configuration);
+        AddConnectorAuth(services, configuration);
         AddRateLimiting(services, configuration);
         AddCors(services, configuration);
         AddSwagger(services);
@@ -29,46 +27,14 @@ public static class DependencyInjection
         return services;
     }
 
-    /// <summary>
-    /// Validates the Descope session token the app sends. Signature comes from Descope's JWKS for the
-    /// project; the issuer is the project ID. There is no audience to check — Descope doesn't set one
-    /// for session tokens by default — so issuer + signature + lifetime are what we rely on.
-    /// </summary>
-    private static void AddDescopeAuthentication(IServiceCollection services, IConfiguration configuration)
+    private static void AddConnectorAuth(IServiceCollection services, IConfiguration configuration)
     {
-        var options = configuration.GetSection(DescopeAuthOptions.SectionName).Get<DescopeAuthOptions>()
-                      ?? new DescopeAuthOptions();
-
-        services.AddOptions<DescopeAuthOptions>()
-            .Bind(configuration.GetSection(DescopeAuthOptions.SectionName))
+        services.AddOptions<ConnectorAuthOptions>()
+            .Bind(configuration.GetSection(ConnectorAuthOptions.SectionName))
             .Validate(
-                o => o.AllowAnonymous || !string.IsNullOrWhiteSpace(o.ProjectId),
-                "Descope:ProjectId is required unless Descope:AllowAnonymous is true.")
+                options => options.AllowAnonymous || options.Keys.Any(k => !string.IsNullOrWhiteSpace(k)),
+                "ConnectorAuth:Keys must contain at least one key unless ConnectorAuth:AllowAnonymous is true.")
             .ValidateOnStart();
-
-        if (options.AllowAnonymous)
-        {
-            // Nothing to wire up — the endpoints skip RequireAuthorization in this mode.
-            return;
-        }
-
-        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-            .AddJwtBearer(jwt =>
-            {
-                jwt.MetadataAddress = options.MetadataAddress;
-                jwt.TokenValidationParameters = new TokenValidationParameters
-                {
-                    ValidateIssuer = true,
-                    ValidIssuer = options.ProjectId,
-                    ValidateAudience = false,
-                    ValidateLifetime = true,
-                    ValidateIssuerSigningKey = true,
-                    // Tokens are short-lived; don't hand out extra grace.
-                    ClockSkew = TimeSpan.FromSeconds(30)
-                };
-            });
-
-        services.AddAuthorization();
     }
 
     private static void AddRateLimiting(IServiceCollection services, IConfiguration configuration)
@@ -79,6 +45,9 @@ public static class DependencyInjection
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
+            // Partitioned by caller IP. Note that every call now arrives from Descope, so this is a
+            // blunt instrument — it protects the service from a runaway connector, not one member
+            // from another. Per-member limits belong in the flow.
             options.AddPolicy(RateLimiterPolicies.Registration, httpContext =>
             {
                 var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";

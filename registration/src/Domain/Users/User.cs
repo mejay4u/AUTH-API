@@ -20,9 +20,11 @@ public class User
     public string PasswordSalt { get; set; } = string.Empty;
 
     /// <summary>
-    /// The Descope user id (`sub`), carried over from the pending record. This is the link between the
-    /// Descope identity and this member — what lets the Auth API turn a validated Descope token into
-    /// its own enriched token without matching on email.
+    /// The Descope user id, carried over from the pending record — the durable link between the
+    /// Descope identity and this member, for exchanging a validated Descope token for the Auth API's
+    /// own enriched one. Currently always null: the flow creates its shadow record only *after*
+    /// <c>initiateRegistration</c> returns, so there is no id to record at that point. Kept because a
+    /// later step can populate it; until then the link is the email address.
     /// </summary>
     public string? DescopeUserId { get; set; }
 

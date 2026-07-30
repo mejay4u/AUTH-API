@@ -1,14 +1,16 @@
-### Member Registration API — the two calls the app makes after Descope has verified the email.
-### Run the API in Development (InMemory DB + Descope:AllowAnonymous) and send these in order.
-### Outside Development every call needs: Authorization: Bearer <Descope session JWT>
+### Member Registration API — the two calls Descope's flow connectors make.
+### The caller is the Descope engine, server to server, authenticated with the connector key.
+### Run the API in Development (InMemory DB + the dev connector key) and send these in order.
 
 @host = https://localhost:7001
+@connectorKey = dev-connector-key
 @email = jane.member@example.com
 
-### Step 3 — store the reviewed details, get the pending record's id.
+### Step 1 — Descope has verified the email; store the details and get the pending record's id.
 # Copy `userId` from the response into @userId below.
 POST {{host}}/api/initiateRegistration
 Content-Type: application/json
+X-Connector-Key: {{connectorKey}}
 
 {
   "email": "{{email}}",
@@ -22,9 +24,10 @@ Content-Type: application/json
 ### ^ paste the returned userId here
 @userId = 00000000-0000-0000-0000-000000000000
 
-### Step 4 — set the password and create the account.
+### Step 2 — set the password and create the account.
 POST {{host}}/api/registration/password
 Content-Type: application/json
+X-Connector-Key: {{connectorKey}}
 
 {
   "userId": "{{userId}}",
@@ -32,9 +35,10 @@ Content-Type: application/json
   "confirmPassword": "Str0ng!PassPhrase"
 }
 
-### Resuming — sending step 3 again for the same email returns the SAME userId, not a duplicate error.
+### Resuming — sending step 1 again for the same email returns the SAME userId, not a duplicate error.
 POST {{host}}/api/initiateRegistration
 Content-Type: application/json
+X-Connector-Key: {{connectorKey}}
 
 {
   "email": "{{email}}",
@@ -48,11 +52,24 @@ Content-Type: application/json
 ### Too-short password — expect 400 with the policy message.
 POST {{host}}/api/registration/password
 Content-Type: application/json
+X-Connector-Key: {{connectorKey}}
 
 {
   "userId": "{{userId}}",
   "password": "Short1!",
   "confirmPassword": "Short1!"
+}
+
+### No connector key — expect 401.
+POST {{host}}/api/initiateRegistration
+Content-Type: application/json
+
+{
+  "email": "nokey@example.com",
+  "firstName": "No",
+  "lastName": "Key",
+  "dateOfBirth": "1985-04-23",
+  "zipCode": "12345"
 }
 
 ### Health

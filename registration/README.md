@@ -1,11 +1,12 @@
 # Member Registration API
 
-A **standalone .NET 8** service (Clean Architecture) that backs the portal sign-up wizard. It is
+A **standalone .NET 8** service (Clean Architecture) that backs the portal sign-up flow. It is
 intentionally separate from the Auth/login service.
 
-**Descope verifies the email; this service owns everything else.** The mobile app runs the wizard,
-uses the Descope SDK for the email OTP, then calls these two endpoints with the session token Descope
-issued. The member record and the **password** live here, not in Descope.
+**Descope verifies the email; this service owns everything else.** Registration runs as a **Descope
+Flow** — the flow's screens collect the details and verify the email, and the **Descope engine** calls
+these two endpoints through HTTP connectors. The mobile app only hosts the flow; it never calls this
+service. The member record and the **password** live here, not in Descope.
 
 | | Descope | This service |
 | --- | --- | --- |
@@ -18,23 +19,23 @@ registration/
     Domain/          Result/Error primitives, RegistrationErrors, User, PendingRegistration. No dependencies.
     Application/     CQRS use cases (InitiateRegistration, CreateAccount), FluentValidation, interfaces, options.
     Infrastructure/  EF Core DbContext (database-first), PBKDF2 hasher.
-    Api/             Minimal-API endpoints, Descope token validation, ProblemDetails, rate limiting, feature flag, Swagger.
+    Api/             Minimal-API endpoints, connector-key auth, ProblemDetails, rate limiting, feature flag, Swagger.
   tests/
     Registration.UnitTests/  xUnit tests (validators, handlers, EF repositories, hasher).
 ```
 
 Dependencies point inward: `Api → Infrastructure → Application → Domain`.
 
-## The wizard, and the two calls into this service
+## The flow, and the two calls into this service
 
-The app's six-step wizard: **Personal Information → Verify Email → Review → Create Account → (5,
-membership check — not built yet) → All set.**
+The Descope flow's phases: **collect details → send OTP → verify OTP → `initiateRegistration` →
+create the shadow user → password screen → `registration/password` → issue session.** The
+membership/eligibility phase is deferred.
 
-Steps 1–2 are Descope only: the app collects the details and calls `otp.signUp.email` /
-`otp.verify.email`. Nothing reaches this service until the email is verified.
+Nothing reaches this service until the flow has verified the email.
 
-**Step 3 — `POST /api/initiateRegistration`.** The member has confirmed their details on the review
-screen. Store them and return the pending record's id.
+**Call 1 — `POST /api/initiateRegistration`.** Fired by the flow's connector immediately after the OTP
+is verified. Store the details held in flow state and return the pending record's id.
 
 ```jsonc
 // request
@@ -44,11 +45,12 @@ screen. Store them and return the pending record's id.
 { "userId": "8f3c…", "email": "jane@example.com", "status": "Pending" }
 ```
 
-A member who abandons the wizard and starts again gets the **same** record back rather than a
+A member who abandons the flow and starts again gets the **same** record back rather than a
 duplicate-key error; an expired one is replaced. An email that already has an account is a `409`.
 
-**Step 4 — `POST /api/registration/password`.** The Create Account button. Hash the password, promote
-the pending record to a real `User` under the **same id**, and delete the pending row.
+**Call 2 — `POST /api/registration/password`.** Fired after the flow's password screen. Hash the
+password, promote the pending record to a real `User` under the **same id**, and delete the pending
+row. The flow then issues the session.
 
 ```jsonc
 // request
@@ -59,30 +61,30 @@ the pending record to a real `User` under the **same id**, and delete the pendin
 
 The password never goes to Descope, which is why sign-in has to be validated against this database.
 
-> There is no `emailVerified` flag anywhere in this service. Descope verifies the address before the
-> app is given the token that authorises these calls, so a pending record existing at all means the
-> address was verified — provided the token is validated, which is the next section.
+> There is no `emailVerified` flag anywhere in this service. The flow verifies the address before its
+> connector makes call 1, so a pending record existing at all means the address was verified — provided
+> the connector key is validated, which is the next section.
 
 ## Authentication
 
-Both endpoints require the **Descope session JWT** the app received from `otp.verify.email`, sent as
-`Authorization: Bearer …`. It is validated properly — signature against Descope's JWKS for the
-project, issuer, and lifetime — not merely decoded.
+Both endpoints are called **machine to machine by Descope's flow connectors**, not by the app and not
+by a member. There is no session token to validate — a shared secret in a header is what separates a
+real connector call from anyone who found the URL.
 
 ```jsonc
-"Descope": {
-  "ProjectId": "P2xxxxxxxx",          // also the token issuer
-  "BaseUrl": "https://api.descope.com",
-  "AllowAnonymous": false             // development only
+"ConnectorAuth": {
+  "HeaderName": "X-Connector-Key",
+  "Keys": [ "…" ],          // supply via secrets/Key Vault; two at once allows zero-downtime rotation
+  "AllowAnonymous": false   // development only
 }
 ```
 
-Startup fails if no project ID is configured and `AllowAnonymous` is off.
+Startup fails if neither a key nor `AllowAnonymous` is configured. Comparison is constant-time and
+does not short-circuit on the first match.
 
-`initiateRegistration` additionally checks that the email in the body matches the one in the token, so
-a valid token for one address can't register another. That check is skipped when the token carries no
-email claim — Descope projects vary on this, so if yours doesn't include one, either add it as a
-custom claim or resolve it with the Management SDK before relying on the check.
+This key is load-bearing in a way that's easy to miss: because the flow only calls these endpoints
+*after* verifying the OTP, the key is the **only** evidence this service has that an email address was
+verified. Treat it like a signing key.
 
 ## Password policy
 
@@ -97,10 +99,11 @@ can be swapped without touching a use case.
 
 ```bash
 cd registration
-dotnet run --project src/Api            # Development: InMemory DB, token validation off
+dotnet run --project src/Api            # Development: InMemory DB + a fixed dev connector key
 ```
 
-`requests.http` walks both steps in order, including the resume path and a rejected password.
+`requests.http` walks both calls in order, including the resume path, a rejected password and the 401
+path with no connector key.
 
 For a real database, run `scripts/create-registration-user-table.sql` once, then set
 `Database:Provider = SqlServer` and `ConnectionStrings:RegistrationDb`.
@@ -113,8 +116,8 @@ comes back).
 ## What is deliberately NOT here
 
 - **OTP and email delivery.** Descope owns both.
-- **The membership/eligibility check** (SSN, Facets lookup, subscriber and plan IDs). That's step 5 of
-  the design and isn't built — the wizard currently goes straight from Create Account to the success
-  screen. An earlier draft of it is on the `claude/registration-descope-passthru` branch.
+- **The membership/eligibility check** (SSN, Facets lookup, subscriber and plan IDs). Phase 4 of the
+  diagram; not built. The flow currently ends after the password call. An earlier draft is in this
+  branch's history.
 - **Sign-in.** Still the Auth API's job, and note it will not work for members registered this way
   until password validation is pointed at this database — the password lives here now.
