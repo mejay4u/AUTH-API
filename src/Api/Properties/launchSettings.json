@@ -27,6 +27,18 @@
         "ASPNETCORE_ENVIRONMENT": "Development"
       }
     },
+    "https (pass-through / BFA)": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "applicationUrl": "https://localhost:7067;http://localhost:5155",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Auth__Mode": "PassThrough",
+        "ApigeeInternal__BaseAddress": "https://localhost:7443/arts/v1/",
+        "ApigeeInternal__ApiKey": "local-dev-key"
+      }
+    },
     "IIS Express": {
       "commandName": "IISExpress",
       "launchBrowser": true,

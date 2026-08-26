@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using AuthApi.Api.Endpoints;
 using AuthApi.Api.Infrastructure;
+using AuthApi.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.OpenApi.Models;
@@ -17,14 +18,21 @@ public static class DependencyInjection
         services.AddExceptionHandler<GlobalExceptionHandler>();
 
         services.AddAuthorization();
-        services.ConfigureOptions<ConfigureJwtBearerOptions>();
-        services
-            .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-            .AddJwtBearer();
+
+        // Bearer validation is registered only in Local mode. The BFA neither issues nor validates
+        // tokens — it has no signing key to validate against — and ConfigureJwtBearerOptions depends
+        // on RsaSigningKeyProvider, which pass-through mode deliberately never registers.
+        if (!configuration.IsPassThrough())
+        {
+            services.ConfigureOptions<ConfigureJwtBearerOptions>();
+            services
+                .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+                .AddJwtBearer();
+        }
 
         AddRateLimiting(services);
         AddCors(services, configuration);
-        AddSwagger(services);
+        AddSwagger(services, configuration);
 
         return services;
     }
@@ -66,17 +74,28 @@ public static class DependencyInjection
         }));
     }
 
-    private static void AddSwagger(IServiceCollection services)
+    private static void AddSwagger(IServiceCollection services, IConfiguration configuration)
     {
+        var isPassThrough = configuration.IsPassThrough();
+
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen(options =>
         {
             options.SwaggerDoc("v1", new OpenApiInfo
             {
-                Title = "Member Auth API",
+                Title = isPassThrough ? "Member Auth BFA" : "Member Auth API",
                 Version = "v1",
-                Description = "Authentication API issuing RS256 JWTs for the Member Portal."
+                Description = isPassThrough
+                    ? "Backend-for-apps pass-through. Relays authentication calls from Apigee External " +
+                      "to the on-prem ARTS auth service via Apigee Internal; ARTS issues the tokens."
+                    : "Authentication API issuing RS256 JWTs for the Member Portal."
             });
+
+            if (isPassThrough)
+            {
+                // No bearer security definition: this deployment exposes only anonymous relay endpoints.
+                return;
+            }
 
             var scheme = new OpenApiSecurityScheme
             {

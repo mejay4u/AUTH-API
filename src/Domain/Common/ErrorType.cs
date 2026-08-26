@@ -11,5 +11,11 @@ public enum ErrorType
     NotFound = 2,
     Conflict = 3,
     Unauthorized = 4,
-    Forbidden = 5
+    Forbidden = 5,
+
+    /// <summary>A dependency we call out to could not be reached (maps to 503).</summary>
+    Unavailable = 6,
+
+    /// <summary>A dependency we call out to did not answer in time (maps to 504).</summary>
+    Timeout = 7
 }

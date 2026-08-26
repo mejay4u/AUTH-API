@@ -59,6 +59,44 @@ See [`requests.http`](requests.http) for ready-to-run calls.
 
 ---
 
+## Two modes: local issuance and BFA pass-through
+
+The API ships one image that can run either way, selected by `Auth:Mode`:
+
+| `Auth:Mode` | What the process does | Needs |
+|---|---|---|
+| `Local` *(default)* | Authenticates against the member DB and issues its own RS256 tokens | Line of sight to the LOB databases |
+| `PassThrough` | Acts as a **BFA**: relays the call to the on-prem **ARTS** auth service via Apigee Internal and returns ARTS's answer verbatim | A route to Apigee Internal |
+
+`PassThrough` exists because the API runs in **ARO**, which has no route to the on-prem member
+databases — while the on-prem ARTS .NET auth service already has one.
+
+```
+Member Portal → Apigee External → BFA (ARO) → Apigee Internal → ARTS (on-prem) → member DB
+```
+
+The routes are identical in both modes, so the Member Portal cannot tell the difference. What
+changes is who decides: in `PassThrough` the BFA holds **no signing key, no DB credential and no
+password logic** — it forwards the request body byte-for-byte and replays ARTS's status, body and
+allow-listed headers. The only responses it authors itself are `400` (malformed body), `503`
+(ARTS unreachable) and `504` (ARTS too slow).
+
+```bash
+# run as the BFA
+Auth__Mode=PassThrough \
+ApigeeInternal__BaseAddress=https://internal-apigee.corp/arts/v1/ \
+ApigeeInternal__ApiKey=... \
+dotnet run --project src/Api/AuthApi.Api.csproj
+```
+
+**→ [`docs/PassThrough-Architecture.md`](docs/PassThrough-Architecture.md)** covers the design in
+full: why the relay is opaque rather than typed, the Result semantics at the gateway boundary, the
+deliberately conservative retry policy, header handling, the cut-over plan, and one known gap — the
+per-IP rate limiter partitions on Apigee's address rather than the caller's until the Apigee egress
+ranges are configured as trusted proxies.
+
+---
+
 ## Security features
 
 - **Asymmetric RS256 signing.** The Auth API holds the private key; every other service validates with

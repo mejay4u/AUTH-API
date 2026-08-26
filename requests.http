@@ -32,3 +32,57 @@ GET {{base}}/.well-known/openid-configuration
 
 ### 6. Health
 GET {{base}}/health
+
+
+# =====================================================================================
+# Pass-through (BFA) mode — Auth:Mode = PassThrough
+#
+# The routes are identical; only what happens behind them changes. The BFA forwards the
+# body verbatim to Apigee Internal → ARTS, and relays ARTS's status, body and
+# allow-listed headers straight back.
+# =====================================================================================
+
+### 7. Login through the BFA relay
+# Note the correlation id: supply one and it travels to ARTS and comes back on the
+# response, so a single id links the Member Portal, BFA, Apigee Internal and ARTS logs.
+POST {{base}}/api/v1/auth/login
+Content-Type: application/json
+X-Correlation-Id: local-dev-0001
+
+{
+  "username": "jdoe",
+  "password": "P@ssw0rd!",
+  "lob": "DENTAL"
+}
+
+### 8. A field the BFA has never heard of still reaches ARTS
+# The body is forwarded byte-for-byte, so "deviceFingerprint" survives the hop even
+# though no BFA contract mentions it. Adding a login field needs no BFA release.
+POST {{base}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "username": "jdoe",
+  "password": "P@ssw0rd!",
+  "lob": "DENTAL",
+  "deviceFingerprint": "b7d1f0e2-9a44-4c3e-9f6a-2c1d8e5b7a90"
+}
+
+### 9. Refresh through the BFA relay
+POST {{base}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "paste-a-token-issued-by-ARTS"
+}
+
+### 10. Rejected at the edge — no upstream round trip is spent
+# Missing 'password' fails the BFA's shape check and returns 400 without ever touching
+# ARTS or incrementing its failed-login counter.
+POST {{base}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "username": "jdoe",
+  "lob": "DENTAL"
+}

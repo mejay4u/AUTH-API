@@ -1,5 +1,7 @@
+using AuthApi.Application.Common.Configuration;
 using AuthApi.Application.Common.Interfaces;
 using AuthApi.Application.Common.Security;
+using AuthApi.Infrastructure.Gateways;
 using AuthApi.Infrastructure.Persistence;
 using AuthApi.Infrastructure.Persistence.Connections;
 using AuthApi.Infrastructure.Persistence.Repositories;
@@ -19,11 +21,48 @@ public static class DependencyInjection
         IConfiguration configuration,
         bool isDevelopment)
     {
+        services.AddOptions<AuthOptions>()
+            .Bind(configuration.GetSection(AuthOptions.SectionName))
+            .ValidateDataAnnotations();
+
+        services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
+
+        return configuration.IsPassThrough()
+            ? AddPassThroughInfrastructure(services, configuration)
+            : AddLocalInfrastructure(services, configuration, isDevelopment);
+    }
+
+    /// <summary>
+    /// Pass-through (BFA) mode: the ONLY outbound dependency is Apigee Internal.
+    ///
+    /// Nothing else gets registered — no DbContext, no repository, no password hasher, no RSA signing
+    /// key. That absence is the design, not an oversight: the ARO cluster has no route to the on-prem
+    /// member databases, so a deployment that could not have worked must fail to start rather than
+    /// fail on first login. It also means the BFA holds no signing key and no DB credential, so a
+    /// compromised BFA pod cannot mint a token or read a member record.
+    /// </summary>
+    private static IServiceCollection AddPassThroughInfrastructure(
+        IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddApigeeInternalGateway(configuration);
+
+        return services;
+    }
+
+    /// <summary>
+    /// Local mode: the original self-contained stack — member DB, password verification and RS256
+    /// token issuance in this process. Requires line-of-sight to the LOB databases.
+    /// </summary>
+    private static IServiceCollection AddLocalInfrastructure(
+        IServiceCollection services,
+        IConfiguration configuration,
+        bool isDevelopment)
+    {
         AddOptions(services, configuration, isDevelopment);
         AddPersistence(services, configuration);
         AddAccountDataAccess(services, configuration);
 
-        services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
         services.AddScoped<IPasswordHasher, SaltedHashPasswordHasher>();
 
         // The RSA key must be stable for the process lifetime -> singleton.
